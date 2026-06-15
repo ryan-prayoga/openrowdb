@@ -65,6 +65,11 @@ public enum SQLDialect: Sendable {
         let safeOffset = max(0, offset)
         return "SELECT * FROM \(qualifiedName(table)) LIMIT \(safeLimit) OFFSET \(safeOffset)"
     }
+
+    /// Exact row count for a table.
+    public func countRowsSQL(_ table: TableRef) -> String {
+        "SELECT COUNT(*) FROM \(qualifiedName(table))"
+    }
 }
 
 public extension Connection.Driver {

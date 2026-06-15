@@ -122,6 +122,16 @@ public final class ConnectionManager {
         try await client(for: id).fetchRows(table, limit: limit, offset: offset)
     }
 
+    /// Exact row count for a table on an already-connected id.
+    public func countRows(_ table: TableRef, on id: UUID) async throws -> Int {
+        let client = try client(for: id)
+        let result = try await client.query(client.dialect.countRowsSQL(table))
+        guard let first = result.rows.first?.first, let value = first, let count = Int(value) else {
+            return 0
+        }
+        return count
+    }
+
     private func client(for id: UUID) throws -> any DatabaseClient {
         guard let client = clients[id] else {
             throw DatabaseError.notConnected

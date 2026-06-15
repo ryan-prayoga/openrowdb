@@ -106,14 +106,25 @@ public final class PostgresDriver: DatabaseClient {
         return config
     }
 
-    /// Render a cell to a display string, trying common types before falling back to raw bytes.
+    /// Render a cell to a display string.
+    ///
+    /// Typed decoders are tried first because they are OID-gated and only succeed
+    /// for their own column type. `String` is tried LAST: PostgresNIO's `String`
+    /// decoder has a permissive `default` case that converts the raw bytes of *any*
+    /// type to a string (e.g. for `ltree`), which would render a `float8` as binary
+    /// garbage if tried first.
     private static func render(_ cell: PostgresCell) -> String? {
         guard cell.bytes != nil else { return nil }  // SQL NULL
-        if let s = try? cell.decode(String.self) { return s }
-        if let i = try? cell.decode(Int64.self) { return String(i) }
-        if let d = try? cell.decode(Double.self) { return String(d) }
         if let b = try? cell.decode(Bool.self) { return String(b) }
+        if let i = try? cell.decode(Int64.self) { return String(i) }
+        if let i = try? cell.decode(Int32.self) { return String(i) }
+        if let i = try? cell.decode(Int16.self) { return String(i) }
+        if let d = try? cell.decode(Double.self) { return String(d) }
+        if let f = try? cell.decode(Float.self) { return String(f) }
+        if let n = try? cell.decode(Decimal.self) { return n.description }
         if let u = try? cell.decode(UUID.self) { return u.uuidString }
+        if let date = try? cell.decode(Date.self) { return date.formatted(.iso8601) }
+        if let s = try? cell.decode(String.self) { return s }
         if let buffer = cell.bytes {
             let hex = buffer.readableBytesView.map { String(format: "%02x", $0) }.joined()
             return "\\x" + hex

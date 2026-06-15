@@ -25,12 +25,13 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 
 ## Phase 2 — Browse (Day 5–7)
 
-- [ ] Database / schema / table tree
-- [ ] Table list with row counts
-- [ ] Click table → view first 100 rows
-- [ ] Results grid (SwiftUI Table)
+- [x] Table list (schema introspection via information_schema)
+- [x] Click table → view first 100 rows
+- [x] Results grid (SwiftUI Table, dynamic columns, NULL rendering)
+- [x] Pagination (prev / next, "X–Y of total")
 - [ ] Column header sort
-- [ ] Pagination (next 100 / jump to page)
+- [ ] Row counts shown in the table list (count exists, only in pager so far)
+- [ ] Multi-schema tree (currently a flat table list)
 
 ## Phase 3 — Query (Day 8–10)
 

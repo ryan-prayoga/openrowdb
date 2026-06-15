@@ -36,6 +36,12 @@ final class SQLDialectTests: XCTestCase {
         XCTAssertEqual(sql, "SELECT * FROM `s`.`t` LIMIT 0 OFFSET 0")
     }
 
+    func testCountRowsSQL() {
+        let table = TableRef(schema: "public", name: "Seat")
+        XCTAssertEqual(SQLDialect.postgres.countRowsSQL(table), "SELECT COUNT(*) FROM \"public\".\"Seat\"")
+        XCTAssertEqual(SQLDialect.mysql.countRowsSQL(TableRef(schema: "s", name: "t")), "SELECT COUNT(*) FROM `s`.`t`")
+    }
+
     func testDriverMapsToDialect() {
         XCTAssertEqual(Connection.Driver.postgres.dialect, .postgres)
         XCTAssertEqual(Connection.Driver.mysql.dialect, .mysql)

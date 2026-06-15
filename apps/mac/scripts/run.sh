@@ -19,12 +19,12 @@ APP="${TMPDIR:-/tmp}/OpenrowDB.app"
 
 cd "$MAC_DIR"
 
-echo "▸ Building ($CONFIG)…"
+echo "[1/4] Building ($CONFIG)..."
 swift build -c "$CONFIG"
 
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/OpenrowDB"
 
-echo "▸ Packaging bundle at $APP…"
+echo "[2/4] Packaging bundle at ${APP} ..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/OpenrowDB"
@@ -47,10 +47,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-echo "▸ Signing (ad-hoc)…"
+echo "[3/4] Signing (ad-hoc)..."
 codesign --force --deep --sign - "$APP" >/dev/null
 
-echo "▸ Launching…"
+echo "[4/4] Launching..."
 pkill -f "OpenrowDB.app/Contents/MacOS" 2>/dev/null || true
 open "$APP"
-echo "✓ OpenrowDB launched."
+echo "OK: OpenrowDB launched."

@@ -80,8 +80,11 @@ public final class PostgresDriver: DatabaseClient {
             s.runTask = nil
             return t
         }
+        // Cancel but do NOT `await task.value`: PostgresClient.run() reacts to
+        // graceful-shutdown signals (ServiceLifecycle), not Task cancellation, so
+        // awaiting the run task here can block indefinitely. Cancellation still
+        // tears the pool down asynchronously.
         task?.cancel()
-        await task?.value
     }
 
     // MARK: - Helpers

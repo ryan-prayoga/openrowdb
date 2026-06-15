@@ -36,6 +36,18 @@ final class SQLDialectTests: XCTestCase {
         XCTAssertEqual(sql, "SELECT * FROM `s`.`t` LIMIT 0 OFFSET 0")
     }
 
+    func testSelectRowsWithSortAscending() {
+        let table = TableRef(schema: "public", name: "Movie")
+        let sql = SQLDialect.postgres.selectRowsSQL(table, limit: 50, offset: 0, sort: SortSpec(column: "title", ascending: true))
+        XCTAssertEqual(sql, "SELECT * FROM \"public\".\"Movie\" ORDER BY \"title\" ASC LIMIT 50 OFFSET 0")
+    }
+
+    func testSelectRowsWithSortDescendingQuotesColumn() {
+        let table = TableRef(schema: "s", name: "t")
+        let sql = SQLDialect.mysql.selectRowsSQL(table, limit: 10, offset: 5, sort: SortSpec(column: "we`ird", ascending: false))
+        XCTAssertEqual(sql, "SELECT * FROM `s`.`t` ORDER BY `we``ird` DESC LIMIT 10 OFFSET 5")
+    }
+
     func testCountRowsSQL() {
         let table = TableRef(schema: "public", name: "Seat")
         XCTAssertEqual(SQLDialect.postgres.countRowsSQL(table), "SELECT COUNT(*) FROM \"public\".\"Seat\"")

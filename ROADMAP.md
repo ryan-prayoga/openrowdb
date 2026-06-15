@@ -22,16 +22,19 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Connection persistence (`ConnectionStore`, JSON)
 - [x] Connection status indicator (sidebar dot + workspace badge)
 - [x] SSL toggle (require / prefer / disable) — sheet picker + driver mapping
+- [x] Edit / delete connection (delete confirmed; secret cleanup best-effort)
+- [x] Test Connection button + password show/hide
+- [x] Double-click connection to connect; friendly connection errors
 
 ## Phase 2 — Browse (Day 5–7)
 
 - [x] Table list (schema introspection via information_schema)
+- [x] Table list grouped by schema + search filter + row-count badges
 - [x] Click table → view first 100 rows
-- [x] Results grid (SwiftUI Table, dynamic columns, NULL rendering)
+- [x] Results grid (SwiftUI Table, dynamic columns, NULL rendering, cell copy)
+- [x] Column header sort (server-side ORDER BY)
 - [x] Pagination (prev / next, "X–Y of total")
-- [ ] Column header sort
-- [ ] Row counts shown in the table list (count exists, only in pager so far)
-- [ ] Multi-schema tree (currently a flat table list)
+- [x] Refresh (reload tables + counts + current page)
 
 ## Phase 3 — Query (Day 8–10)
 

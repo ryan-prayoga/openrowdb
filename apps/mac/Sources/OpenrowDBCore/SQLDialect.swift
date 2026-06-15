@@ -14,6 +14,17 @@ public struct TableRef: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A sort applied to a browsed table: column name + direction.
+public struct SortSpec: Sendable, Equatable {
+    public let column: String
+    public let ascending: Bool
+
+    public init(column: String, ascending: Bool) {
+        self.column = column
+        self.ascending = ascending
+    }
+}
+
 /// Per-driver SQL generation. Kept as pure functions so identifier quoting and
 /// query shaping can be unit-tested without a live database.
 public enum SQLDialect: Sendable {
@@ -59,11 +70,17 @@ public enum SQLDialect: Sendable {
     }
 
     /// Paged `SELECT *` over a table. `limit`/`offset` are clamped to >= 0 and
-    /// inlined as integers (never user strings), so no injection surface.
-    public func selectRowsSQL(_ table: TableRef, limit: Int, offset: Int) -> String {
+    /// inlined as integers (never user strings), so no injection surface. The
+    /// sort column is quoted (identifier-safe); direction is a fixed keyword.
+    public func selectRowsSQL(_ table: TableRef, limit: Int, offset: Int, sort: SortSpec? = nil) -> String {
         let safeLimit = max(0, limit)
         let safeOffset = max(0, offset)
-        return "SELECT * FROM \(qualifiedName(table)) LIMIT \(safeLimit) OFFSET \(safeOffset)"
+        var sql = "SELECT * FROM \(qualifiedName(table))"
+        if let sort {
+            sql += " ORDER BY \(quote(sort.column)) \(sort.ascending ? "ASC" : "DESC")"
+        }
+        sql += " LIMIT \(safeLimit) OFFSET \(safeOffset)"
+        return sql
     }
 
     /// Exact row count for a table.

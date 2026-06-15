@@ -64,9 +64,13 @@ public final class ConnectionManager {
     }
 
     /// Disconnect, then delete the client, secret, and metadata.
+    ///
+    /// Secret removal is best-effort: a stale or inaccessible Keychain item (for
+    /// example one created by an earlier ad-hoc-signed dev build, which the current
+    /// build's signature can't delete) must never block removing the connection.
     public func remove(_ connection: Connection) async throws {
         await disconnect(connection.id)
-        try secrets.remove(connection.passwordKeychainKey)
+        try? secrets.remove(connection.passwordKeychainKey)
         try store.remove(id: connection.id)
         connections = try store.load()
         status[connection.id] = nil
@@ -97,6 +101,20 @@ public final class ConnectionManager {
         }
     }
 
+    /// Try connecting with the given parameters without persisting anything.
+    /// Returns `nil` on success, or a human-readable error message on failure.
+    public func test(_ connection: Connection, password: String?) async -> String? {
+        let client = makeClient(connection, password)
+        do {
+            try await client.connect()
+            await client.close()
+            return nil
+        } catch {
+            await client.close()
+            return Self.message(for: error)
+        }
+    }
+
     /// Close and forget the live client for an id.
     public func disconnect(_ id: UUID) async {
         if let client = clients.removeValue(forKey: id) {
@@ -117,9 +135,9 @@ public final class ConnectionManager {
         try await client(for: id).listTables()
     }
 
-    /// Fetch a page of rows from a table on an already-connected id.
-    public func fetchRows(_ table: TableRef, on id: UUID, limit: Int, offset: Int) async throws -> QueryResult {
-        try await client(for: id).fetchRows(table, limit: limit, offset: offset)
+    /// Fetch a page of rows from a table on an already-connected id, optionally sorted.
+    public func fetchRows(_ table: TableRef, on id: UUID, limit: Int, offset: Int, sort: SortSpec? = nil) async throws -> QueryResult {
+        try await client(for: id).fetchRows(table, limit: limit, offset: offset, sort: sort)
     }
 
     /// Exact row count for a table on an already-connected id.
@@ -142,7 +160,7 @@ public final class ConnectionManager {
     // MARK: - Helpers
 
     private static func message(for error: Error) -> String {
-        if case let DatabaseError.driver(message) = error { return message }
+        if let dbError = error as? DatabaseError { return dbError.userMessage }
         return String(describing: error)
     }
 }

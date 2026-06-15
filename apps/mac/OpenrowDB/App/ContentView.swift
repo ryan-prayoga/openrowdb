@@ -7,12 +7,14 @@ struct ContentView: View {
     @Environment(ConnectionManager.self) private var manager
     @Binding var showingNewConnection: Bool
     @State private var selection: UUID?
+    @State private var editingConnection: Connection?
 
     var body: some View {
         NavigationSplitView {
             ConnectionsSidebar(
                 selection: $selection,
-                showingNewConnection: $showingNewConnection
+                showingNewConnection: $showingNewConnection,
+                editingConnection: $editingConnection
             )
             // Set width here, NOT via .frame(minWidth:) on the split view — a global
             // frame constraint causes the sidebar collapse animation to stutter.
@@ -29,7 +31,10 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 640, ideal: 820)
         }
         .sheet(isPresented: $showingNewConnection) {
-            NewConnectionSheet()
+            ConnectionSheet()
+        }
+        .sheet(item: $editingConnection) { connection in
+            ConnectionSheet(existing: connection)
         }
     }
 }

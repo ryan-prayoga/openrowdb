@@ -7,6 +7,9 @@ struct ConnectionsSidebar: View {
     @Environment(ConnectionManager.self) private var manager
     @Binding var selection: UUID?
     @Binding var showingNewConnection: Bool
+    @Binding var editingConnection: Connection?
+
+    @State private var pendingDelete: Connection?
 
     var body: some View {
         List(selection: $selection) {
@@ -22,9 +25,19 @@ struct ConnectionsSidebar: View {
                             status: manager.status[connection.id] ?? .disconnected
                         )
                         .tag(connection.id)
+                        .contentShape(.rect)
+                        .onTapGesture(count: 2) {
+                            selection = connection.id
+                            Task { await manager.connect(connection.id) }
+                        }
                         .contextMenu {
+                            Button("Connect") {
+                                Task { await manager.connect(connection.id) }
+                            }
+                            Button("Edit…") { editingConnection = connection }
+                            Divider()
                             Button("Delete", role: .destructive) {
-                                Task { try? await manager.remove(connection) }
+                                pendingDelete = connection
                             }
                         }
                     }
@@ -45,6 +58,19 @@ struct ConnectionsSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .confirmationDialog(
+            "Delete \u{201C}\(pendingDelete?.name ?? "")\u{201D}?",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { connection in
+            Button("Delete", role: .destructive) {
+                Task { try? await manager.remove(connection) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This removes the saved connection and its stored password. This can't be undone.")
+        }
     }
 }
 

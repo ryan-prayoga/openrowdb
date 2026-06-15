@@ -19,9 +19,21 @@ concurrency:
 jobs:
   build-and-test:
     name: Build & Test Core (SwiftPM)
-    runs-on: macos-15
+    # macOS 26 (Tahoe) runner: the app targets .macOS(.v26) and uses Liquid Glass
+    # APIs + swift-tools 6.2, which require Xcode 26 / Swift 6.2+.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$XCODE" ]; then
+            echo "Selecting $XCODE"
+            sudo xcode-select -s "$XCODE/Contents/Developer"
+          else
+            echo "No Xcode_26* found; using default: $(xcode-select -p)"
+          fi
 
       - name: Show Swift version
         run: swift --version

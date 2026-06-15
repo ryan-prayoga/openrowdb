@@ -58,4 +58,33 @@ final class SQLDialectTests: XCTestCase {
         XCTAssertEqual(Connection.Driver.postgres.dialect, .postgres)
         XCTAssertEqual(Connection.Driver.mysql.dialect, .mysql)
     }
+
+    func testQuoteLiteralEscapesSingleQuotes() {
+        XCTAssertEqual(SQLDialect.postgres.quoteLiteral("O'Brien"), "'O''Brien'")
+    }
+
+    func testListTablesIncludesViews() {
+        XCTAssertTrue(SQLDialect.postgres.listTablesSQL.contains("'VIEW'"))
+        XCTAssertTrue(SQLDialect.postgres.listTablesSQL.contains("table_type"))
+    }
+
+    func testListColumnsSQLUsesLiterals() {
+        let sql = SQLDialect.postgres.listColumnsSQL(TableRef(schema: "public", name: "Movie"))
+        XCTAssertTrue(sql.contains("information_schema.columns"))
+        XCTAssertTrue(sql.contains("table_schema = 'public'"))
+        XCTAssertTrue(sql.contains("table_name = 'Movie'"))
+        XCTAssertTrue(sql.contains("ORDER BY ordinal_position"))
+    }
+
+    func testEstimatedRowCountSQLPostgresUsesRegclass() {
+        let sql = SQLDialect.postgres.estimatedRowCountSQL(TableRef(schema: "public", name: "Seat"))
+        XCTAssertEqual(sql, "SELECT reltuples::bigint FROM pg_class WHERE oid = '\"public\".\"Seat\"'::regclass")
+    }
+
+    func testEstimatedRowCountSQLMySQLUsesInformationSchema() {
+        let sql = SQLDialect.mysql.estimatedRowCountSQL(TableRef(schema: "shop", name: "orders"))
+        XCTAssertTrue(sql.contains("table_rows"))
+        XCTAssertTrue(sql.contains("table_schema = 'shop'"))
+        XCTAssertTrue(sql.contains("table_name = 'orders'"))
+    }
 }

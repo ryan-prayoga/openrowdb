@@ -3,14 +3,45 @@ import Foundation
 
 /// A schema-qualified table reference surfaced by introspection.
 public struct TableRef: Identifiable, Hashable, Sendable {
+    public enum Kind: String, Sendable, Hashable {
+        case table
+        case view
+    }
+
     public let schema: String
     public let name: String
+    public let kind: Kind
 
     public var id: String { "\(schema).\(name)" }
 
-    public init(schema: String, name: String) {
+    public init(schema: String, name: String, kind: Kind = .table) {
         self.schema = schema
         self.name = name
+        self.kind = kind
+    }
+}
+
+/// A table's row count, flagged as exact or an approximate catalog estimate.
+public struct RowCount: Sendable, Equatable {
+    public let value: Int
+    public let isEstimate: Bool
+
+    public init(value: Int, isEstimate: Bool) {
+        self.value = value
+        self.isEstimate = isEstimate
+    }
+}
+
+/// A column's name and SQL data type, from `information_schema.columns`.
+public struct ColumnInfo: Sendable, Hashable, Identifiable {
+    public let name: String
+    public let type: String
+
+    public var id: String { name }
+
+    public init(name: String, type: String) {
+        self.name = name
+        self.type = type
     }
 }
 
@@ -47,24 +78,53 @@ public enum SQLDialect: Sendable {
         "\(quote(table.schema)).\(quote(table.name))"
     }
 
-    /// SQL listing user tables (excludes system schemas).
+    /// Quote a value as a SQL string literal, escaping embedded single quotes.
+    public func quoteLiteral(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+    }
+
+    /// SQL listing user tables and views (excludes system schemas). Selects
+    /// schema, name, and table_type so callers can distinguish tables from views.
     public var listTablesSQL: String {
         switch self {
         case .postgres:
             return """
-            SELECT table_schema, table_name
+            SELECT table_schema, table_name, table_type
             FROM information_schema.tables
-            WHERE table_type = 'BASE TABLE'
+            WHERE table_type IN ('BASE TABLE', 'VIEW')
               AND table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name
             """
         case .mysql:
             return """
-            SELECT table_schema, table_name
+            SELECT table_schema, table_name, table_type
             FROM information_schema.tables
-            WHERE table_type = 'BASE TABLE'
+            WHERE table_type IN ('BASE TABLE', 'VIEW')
               AND table_schema = DATABASE()
             ORDER BY table_name
+            """
+        }
+    }
+
+    /// SQL listing a table's columns and their data types, in definition order.
+    public func listColumnsSQL(_ table: TableRef) -> String {
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = \(quoteLiteral(table.schema)) AND table_name = \(quoteLiteral(table.name))
+        ORDER BY ordinal_position
+        """
+    }
+
+    /// Fast, approximate row count from catalog statistics (no full scan).
+    public func estimatedRowCountSQL(_ table: TableRef) -> String {
+        switch self {
+        case .postgres:
+            return "SELECT reltuples::bigint FROM pg_class WHERE oid = \(quoteLiteral(qualifiedName(table)))::regclass"
+        case .mysql:
+            return """
+            SELECT table_rows FROM information_schema.tables
+            WHERE table_schema = \(quoteLiteral(table.schema)) AND table_name = \(quoteLiteral(table.name))
             """
         }
     }

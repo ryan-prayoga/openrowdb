@@ -12,7 +12,7 @@ struct BrowseView: View {
 
     @State private var pageSize = 100
     @State private var tables: [TableRef] = []
-    @State private var tableCounts: [TableRef.ID: Int] = [:]
+    @State private var tableCounts: [TableRef.ID: RowCount] = [:]
     @State private var tablesError: String?
     @State private var loadingTables = false
     @State private var search = ""
@@ -22,10 +22,11 @@ struct BrowseView: View {
     @State private var rowsError: String?
     @State private var loadingRows = false
     @State private var page = 0
-    @State private var totalRows: Int?
+    @State private var totalRows: RowCount?
     @State private var sortOrder: [ColumnComparator] = []
     @State private var selectedRowID: Int?
     @State private var showRowInspector = false
+    @State private var columnTypes: [String: String] = [:]
 
     private var selectedTable: TableRef? {
         tables.first { $0.id == selectedTableID }
@@ -64,7 +65,9 @@ struct BrowseView: View {
             result = nil
             totalRows = nil
             selectedRowID = nil
+            columnTypes = [:]
             Task {
+                await loadColumns()
                 await loadCount()
                 await loadRows()
             }
@@ -124,9 +127,9 @@ struct BrowseView: View {
                 ForEach(schemas, id: \.self) { schema in
                     Section(schema) {
                         ForEach(filteredTables.filter { $0.schema == schema }) { table in
-                            Label(table.name, systemImage: "tablecells")
-                                .badge(tableCounts[table.id].map { "\($0)" } ?? nil)
-                                .help("\(table.schema).\(table.name)")
+                            Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+                                .badge(badgeText(for: table))
+                                .help(helpText(for: table))
                                 .tag(table.id)
                         }
                     }
@@ -134,6 +137,17 @@ struct BrowseView: View {
             }
             .listStyle(.sidebar)
         }
+    }
+
+    private func badgeText(for table: TableRef) -> String? {
+        guard let count = tableCounts[table.id] else { return nil }
+        let prefix = count.isEstimate ? "~" : ""
+        return "\(prefix)\(count.value)"
+    }
+
+    private func helpText(for table: TableRef) -> String {
+        let suffix = table.kind == .view ? " (view)" : ""
+        return "\(table.schema).\(table.name)\(suffix)"
     }
 
     // MARK: - Results
@@ -146,16 +160,16 @@ struct BrowseView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let rowsError {
             ContentUnavailableView("Query failed", systemImage: "exclamationmark.triangle", description: Text(rowsError))
-        } else if totalRows == 0 {
+        } else if totalRows?.value == 0 {
             ContentUnavailableView("No rows", systemImage: "tablecells")
         } else if let result, !result.columns.isEmpty {
             VStack(spacing: 0) {
-                ResultsTable(result: result, sortOrder: $sortOrder, selection: $selectedRowID)
+                ResultsGrid(result: result, sortOrder: $sortOrder, selection: $selectedRowID)
                 Divider()
                 paginationBar
             }
             .inspector(isPresented: $showRowInspector) {
-                RowInspector(result: result, selectedRowID: selectedRowID)
+                RowInspector(result: result, selectedRowID: selectedRowID, columnTypes: columnTypes)
                     .inspectorColumnWidth(min: 240, ideal: 300, max: 460)
             }
         } else {
@@ -166,12 +180,16 @@ struct BrowseView: View {
     private var firstRowIndex: Int { page * pageSize + 1 }
     private var lastRowIndex: Int { page * pageSize + (result?.rows.count ?? 0) }
     private var totalPages: Int {
-        guard let totalRows, totalRows > 0 else { return 1 }
-        return (totalRows + pageSize - 1) / pageSize
+        guard let totalRows, totalRows.value > 0 else { return 1 }
+        return (totalRows.value + pageSize - 1) / pageSize
     }
     private var hasNextPage: Bool {
-        guard let totalRows else { return (result?.rows.count ?? 0) == pageSize }
-        return (page + 1) * pageSize < totalRows
+        // For estimates (big tables) the total may be off, so fall back to whether
+        // the current page came back full; for exact counts use the total.
+        guard let totalRows, !totalRows.isEstimate else {
+            return (result?.rows.count ?? 0) == pageSize
+        }
+        return (page + 1) * pageSize < totalRows.value
     }
 
     private var paginationBar: some View {
@@ -225,7 +243,8 @@ struct BrowseView: View {
 
     private var rangeLabel: String {
         if let totalRows {
-            return "\(firstRowIndex)–\(lastRowIndex) of \(totalRows)"
+            let prefix = totalRows.isEstimate ? "~" : ""
+            return "\(firstRowIndex)–\(lastRowIndex) of \(prefix)\(totalRows.value)"
         }
         return "\(firstRowIndex)–\(lastRowIndex)"
     }
@@ -252,19 +271,29 @@ struct BrowseView: View {
         }
     }
 
-    /// Load row counts for every table, in the background. Best-effort: a failed
-    /// count just leaves that table's badge empty.
+    /// Load row counts for every table badge, in the background. Hybrid: large
+    /// tables use the instant catalog estimate (shown as "~N"); small or
+    /// un-analyzed tables get an exact COUNT — so no big table is ever scanned.
     private func loadCounts() async {
         for table in tables {
-            if let count = try? await manager.countRows(table, on: connectionID) {
+            if let count = try? await manager.rowCount(of: table, on: connectionID) {
                 tableCounts[table.id] = count
             }
         }
     }
 
+    /// Count for the selected table (drives the pager total): exact when cheap,
+    /// estimate when the table is large.
     private func loadCount() async {
         guard let selectedTable else { return }
-        totalRows = try? await manager.countRows(selectedTable, on: connectionID)
+        totalRows = try? await manager.rowCount(of: selectedTable, on: connectionID)
+    }
+
+    private func loadColumns() async {
+        guard let selectedTable else { return }
+        if let infos = try? await manager.columns(of: selectedTable, on: connectionID) {
+            columnTypes = Dictionary(infos.map { ($0.name, $0.type) }, uniquingKeysWith: { first, _ in first })
+        }
     }
 
     private func loadRows() async {
@@ -294,72 +323,7 @@ struct BrowseView: View {
     }
 }
 
-// MARK: - Results grid
-
-private struct ResultColumn: Identifiable {
-    let id: Int
-    let name: String
-}
-
-private struct ResultRow: Identifiable {
-    let id: Int
-    let cells: [String?]
-}
-
-/// Sort descriptor carried by clickable table headers. Sorting is performed
-/// server-side (ORDER BY), so the client-side `compare` is a no-op — the column
-/// header still shows the sort indicator from `order`.
-private struct ColumnComparator: SortComparator {
-    let columnIndex: Int
-    let columnName: String
-    var order: SortOrder
-
-    func compare(_ lhs: ResultRow, _ rhs: ResultRow) -> ComparisonResult {
-        .orderedSame
-    }
-}
-
-/// A SwiftUI `Table` with columns derived dynamically from a `QueryResult`,
-/// with clickable column-header sorting wired to `sortOrder`.
-private struct ResultsTable: View {
-    let result: QueryResult
-    @Binding var sortOrder: [ColumnComparator]
-    @Binding var selection: Int?
-
-    private var columns: [ResultColumn] {
-        result.columns.enumerated().map { ResultColumn(id: $0.offset, name: $0.element) }
-    }
-
-    private var rows: [ResultRow] {
-        result.rows.enumerated().map { ResultRow(id: $0.offset, cells: $0.element) }
-    }
-
-    var body: some View {
-        if columns.isEmpty {
-            ContentUnavailableView("No columns", systemImage: "tablecells")
-        } else {
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumnForEach(columns) { column in
-                    TableColumn(
-                        column.name,
-                        sortUsing: ColumnComparator(columnIndex: column.id, columnName: column.name, order: .forward)
-                    ) { row in
-                        cell(row.cells.indices.contains(column.id) ? row.cells[column.id] : nil)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func cell(_ value: String?) -> some View {
-        if let value {
-            Text(value).monospaced().textSelection(.enabled)
-        } else {
-            Text("NULL").foregroundStyle(.secondary).italic()
-        }
-    }
-}
+// MARK: - Pagination
 
 /// A 1-based page number field that jumps on commit, clamped to [1, totalPages].
 private struct PageJumpField: View {
@@ -386,47 +350,5 @@ private struct PageJumpField: View {
         let clamped = min(max(value, 1), totalPages)
         page = clamped - 1
         text = "\(clamped)"
-    }
-}
-
-/// Trailing inspector showing every column/value of the selected row, copyable.
-private struct RowInspector: View {
-    let result: QueryResult
-    let selectedRowID: Int?
-
-    private var row: [String?]? {
-        guard let selectedRowID, result.rows.indices.contains(selectedRowID) else { return nil }
-        return result.rows[selectedRowID]
-    }
-
-    var body: some View {
-        Group {
-            if let row {
-                List {
-                    ForEach(Array(result.columns.enumerated()), id: \.offset) { index, name in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(name)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            valueText(row.indices.contains(index) ? row[index] : nil)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            } else {
-                ContentUnavailableView("No row selected", systemImage: "rectangle.and.text.magnifyingglass")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func valueText(_ value: String?) -> some View {
-        if let value {
-            Text(value).monospaced().font(.callout).textSelection(.enabled)
-        } else {
-            Text("NULL").foregroundStyle(.secondary).italic()
-        }
     }
 }

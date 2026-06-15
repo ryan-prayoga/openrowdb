@@ -127,27 +127,54 @@ public final class ConnectionManager {
 
     /// Run SQL against an already-connected id.
     public func run(_ sql: String, on id: UUID) async throws -> QueryResult {
-        try await client(for: id).query(sql)
+        try await perform(id) { try await $0.query(sql) }
     }
 
-    /// List user tables for an already-connected id.
+    /// List user tables and views for an already-connected id.
     public func tables(on id: UUID) async throws -> [TableRef] {
-        try await client(for: id).listTables()
+        try await perform(id) { try await $0.listTables() }
+    }
+
+    /// A table's columns and their types for an already-connected id.
+    public func columns(of table: TableRef, on id: UUID) async throws -> [ColumnInfo] {
+        try await perform(id) { try await $0.columns(of: table) }
     }
 
     /// Fetch a page of rows from a table on an already-connected id, optionally sorted.
     public func fetchRows(_ table: TableRef, on id: UUID, limit: Int, offset: Int, sort: SortSpec? = nil) async throws -> QueryResult {
-        try await client(for: id).fetchRows(table, limit: limit, offset: offset, sort: sort)
+        try await perform(id) { try await $0.fetchRows(table, limit: limit, offset: offset, sort: sort) }
     }
 
     /// Exact row count for a table on an already-connected id.
     public func countRows(_ table: TableRef, on id: UUID) async throws -> Int {
-        let client = try client(for: id)
-        let result = try await client.query(client.dialect.countRowsSQL(table))
-        guard let first = result.rows.first?.first, let value = first, let count = Int(value) else {
-            return 0
+        try await perform(id) { client in
+            let result = try await client.query(client.dialect.countRowsSQL(table))
+            guard let first = result.rows.first?.first, let value = first, let count = Int(value) else {
+                return 0
+            }
+            return count
         }
-        return count
+    }
+
+    /// Fast, approximate row count for a table (catalog stats), or nil if unavailable.
+    public func estimatedRowCount(of table: TableRef, on id: UUID) async throws -> Int? {
+        try await perform(id) { try await $0.estimatedRowCount(of: table) }
+    }
+
+    /// Tables larger than this trust the (instant) catalog estimate rather than
+    /// running a potentially slow COUNT(*).
+    public static let exactCountThreshold = 50_000
+
+    /// A row count that's accurate for small tables and fast for large ones:
+    /// big tables (estimate over the threshold) return the estimate; everything
+    /// else — including un-analyzed tables with no estimate — runs an exact COUNT.
+    public func rowCount(of table: TableRef, on id: UUID) async throws -> RowCount {
+        if let estimate = try? await estimatedRowCount(of: table, on: id),
+           estimate > Self.exactCountThreshold {
+            return RowCount(value: estimate, isEstimate: true)
+        }
+        let exact = try await countRows(table, on: id)
+        return RowCount(value: exact, isEstimate: false)
     }
 
     private func client(for id: UUID) throws -> any DatabaseClient {
@@ -155,6 +182,22 @@ public final class ConnectionManager {
             throw DatabaseError.notConnected
         }
         return client
+    }
+
+    /// Run a client operation, demoting the connection's status if the failure
+    /// indicates the connection was lost (so the UI can offer to reconnect).
+    /// Normal query errors (e.g. SQL syntax) are re-thrown without demotion.
+    private func perform<T>(_ id: UUID, _ body: (any DatabaseClient) async throws -> T) async throws -> T {
+        let client = try client(for: id)
+        do {
+            return try await body(client)
+        } catch {
+            if let dbError = error as? DatabaseError, dbError.isConnectionLost {
+                clients[id] = nil
+                status[id] = .failed(dbError.userMessage)
+            }
+            throw error
+        }
     }
 
     // MARK: - Helpers

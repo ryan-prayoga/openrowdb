@@ -31,8 +31,15 @@ struct ConnectionsSidebar: View {
                             Task { await manager.connect(connection.id) }
                         }
                         .contextMenu {
-                            Button("Connect") {
-                                Task { await manager.connect(connection.id) }
+                            if manager.status[connection.id] == .connected {
+                                Button("Disconnect") {
+                                    Task { await manager.disconnect(connection.id) }
+                                }
+                            } else {
+                                Button("Connect") {
+                                    Task { await manager.connect(connection.id) }
+                                }
+                                .disabled(manager.status[connection.id] == .connecting)
                             }
                             Button("Edit…") { editingConnection = connection }
                             Divider()

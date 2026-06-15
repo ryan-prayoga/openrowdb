@@ -104,7 +104,7 @@ final class ConnectionManagerTests: XCTestCase {
 
         await manager.connect(conn.id)
 
-        XCTAssertEqual(manager.status[conn.id], ConnectionManager.Status.failed("boom"))
+        XCTAssertEqual(manager.status[conn.id], ConnectionManager.Status.failed("Connection failed: boom"))
         XCTAssertEqual(client.state.withLock { $0.closeCalls }, 1)
     }
 

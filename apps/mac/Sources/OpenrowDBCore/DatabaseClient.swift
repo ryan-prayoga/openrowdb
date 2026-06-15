@@ -19,13 +19,32 @@ public protocol DatabaseClient: Sendable {
 }
 
 public extension DatabaseClient {
-    /// List user tables via `information_schema`.
+    /// List user tables and views via `information_schema`.
     func listTables() async throws -> [TableRef] {
         let result = try await query(dialect.listTablesSQL)
         return result.rows.compactMap { row in
             guard row.count >= 2, let schema = row[0], let name = row[1] else { return nil }
-            return TableRef(schema: schema, name: name)
+            let kind: TableRef.Kind = (row.count >= 3 && row[2]?.uppercased() == "VIEW") ? .view : .table
+            return TableRef(schema: schema, name: name, kind: kind)
         }
+    }
+
+    /// A table's columns with their SQL data types.
+    func columns(of table: TableRef) async throws -> [ColumnInfo] {
+        let result = try await query(dialect.listColumnsSQL(table))
+        return result.rows.compactMap { row in
+            guard row.count >= 2, let name = row[0], let type = row[1] else { return nil }
+            return ColumnInfo(name: name, type: type)
+        }
+    }
+
+    /// Approximate row count from catalog stats, or nil if unavailable.
+    func estimatedRowCount(of table: TableRef) async throws -> Int? {
+        let result = try await query(dialect.estimatedRowCountSQL(table))
+        guard let cell = result.rows.first?.first, let value = cell, let number = Double(value) else {
+            return nil
+        }
+        return number < 0 ? nil : Int(number)
     }
 
     /// Fetch a page of rows from a table, optionally sorted.
@@ -79,6 +98,25 @@ public extension DatabaseError {
             return "Host not found — check the hostname."
         }
         return "Connection failed: \(raw)"
+    }
+
+    /// Whether this error indicates the live connection was lost (vs. a normal
+    /// query error like a syntax mistake). Used to demote a connection's status.
+    var isConnectionLost: Bool {
+        switch self {
+        case .notConnected:
+            return true
+        case .invalidAddress:
+            return false
+        case .driver(let raw):
+            let lower = raw.lowercased()
+            if lower.contains("not connected") || lower.contains("broken pipe")
+                || lower.contains("shutdown") || lower.contains("closed connection")
+                || lower.contains("connectionclosed") || lower.contains("server closed") {
+                return true
+            }
+            return lower.contains("connection") && (lower.contains("closed") || lower.contains("reset"))
+        }
     }
 }
 

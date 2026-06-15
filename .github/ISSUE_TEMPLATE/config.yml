@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/ryan-prayoga/openrowdb/discussions
+    about: Questions, ideas, or general chat
+  - name: X / Twitter
+    url: https://x.com/txtdrprogrammer
+    about: Follow daily build progress

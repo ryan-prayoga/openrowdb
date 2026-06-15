@@ -1,0 +1,39 @@
+name: macOS Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mac/**'
+      - '.github/workflows/macos-build.yml'
+  pull_request:
+    paths:
+      - 'apps/mac/**'
+      - '.github/workflows/macos-build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test Core (SwiftPM)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        working-directory: apps/mac
+        run: swift package resolve
+
+      - name: Build
+        working-directory: apps/mac
+        run: swift build -c debug
+
+      - name: Test
+        working-directory: apps/mac
+        run: swift test --parallel

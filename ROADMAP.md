@@ -14,22 +14,29 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 
 ## Phase 1 — Connect (Day 2–4)
 
-- [ ] Connections sidebar UI (Liquid Glass panel)
-- [ ] New-connection sheet (host, port, user, password, db)
-- [ ] Postgres connection via PostgresNIO
-- [ ] MySQL connection via MySQLNIO
-- [ ] Secure credential storage (Keychain)
-- [ ] Connection status indicator
-- [ ] SSL toggle (require / prefer / disable)
+- [x] Connections sidebar UI (Liquid Glass pass deferred to Phase 4)
+- [x] New-connection sheet (host, port, user, password, db)
+- [x] Postgres connection via PostgresNIO (`PostgresDriver`)
+- [x] MySQL connection via MySQLNIO (`MySQLDriver`)
+- [x] Secure credential storage (Keychain) — `SecretStore`
+- [x] Connection persistence (`ConnectionStore`, JSON)
+- [x] Connection status indicator (sidebar dot + workspace badge)
+- [x] SSL toggle (require / prefer / disable) — sheet picker + driver mapping
+- [x] Edit / delete connection (delete confirmed; secret cleanup best-effort)
+- [x] Test Connection button + password show/hide
+- [x] Double-click connection to connect; friendly connection errors
 
 ## Phase 2 — Browse (Day 5–7)
 
-- [ ] Database / schema / table tree
-- [ ] Table list with row counts
-- [ ] Click table → view first 100 rows
-- [ ] Results grid (SwiftUI Table)
-- [ ] Column header sort
-- [ ] Pagination (next 100 / jump to page)
+- [x] Table list (introspection: tables + views, grouped by schema)
+- [x] Search filter + hybrid row-count badges (exact small / ~estimate large)
+- [x] Click table → first 100 rows; reusable ResultsGrid component
+- [x] Results grid (SwiftUI Table, dynamic columns, NULL rendering, cell copy)
+- [x] Column header sort (server-side ORDER BY)
+- [x] Row inspector (per-row column/value + SQL types, copyable)
+- [x] Pagination (prev / next / jump, page-size picker, big-data safe)
+- [x] Refresh (⌘R: tables + counts + current page)
+- [x] Connection-loss detection (demotes status, offers reconnect)
 
 ## Phase 3 — Query (Day 8–10)
 

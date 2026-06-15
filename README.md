@@ -63,9 +63,19 @@ Requires macOS 26+ and Xcode 26+.
 ```bash
 git clone https://github.com/ryan-prayoga/openrowdb.git
 cd openrowdb/apps/mac
-open OpenrowDB.xcodeproj
-# Cmd+R to run
+
+# Build + test the core + app via SwiftPM
+swift build
+swift test
+
+# Launch the app (builds, wraps in a .app bundle, ad-hoc signs, opens)
+scripts/run.sh
 ```
+
+> The app currently builds and runs straight from SwiftPM. `scripts/run.sh`
+> wraps the binary in a minimal bundle so the window gets full keyboard focus,
+> a Dock icon, and smooth animations. A signed/notarized `.xcodeproj` build
+> arrives in Phase 5.
 
 ## Project layout
 

@@ -7,7 +7,11 @@ let package = Package(
         .macOS(.v15)  // bump to v26 when SwiftPM ships macOS 26 support; v15 is the floor for now
     ],
     products: [
-        .library(name: "OpenrowDBCore", targets: ["OpenrowDBCore"])
+        .library(name: "OpenrowDBCore", targets: ["OpenrowDBCore"]),
+        // SwiftUI app, buildable headlessly via SwiftPM for CI + fast iteration.
+        // Shippable .app bundle (Info.plist, entitlements, codesign) is a Phase 5
+        // Xcode-project concern; this target verifies the UI compiles against Core.
+        .executable(name: "OpenrowDB", targets: ["OpenrowDB"])
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
@@ -28,6 +32,11 @@ let package = Package(
                 .product(name: "NIOSSL", package: "swift-nio-ssl")
             ],
             path: "Sources/OpenrowDBCore"
+        ),
+        .executableTarget(
+            name: "OpenrowDB",
+            dependencies: ["OpenrowDBCore"],
+            path: "OpenrowDB"
         ),
         .testTarget(
             name: "OpenrowDBCoreTests",

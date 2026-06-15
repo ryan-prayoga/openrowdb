@@ -14,14 +14,14 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 
 ## Phase 1 — Connect (Day 2–4)
 
-- [ ] Connections sidebar UI (Liquid Glass panel)
-- [ ] New-connection sheet (host, port, user, password, db)
+- [x] Connections sidebar UI (Liquid Glass pass deferred to Phase 4)
+- [x] New-connection sheet (host, port, user, password, db)
 - [x] Postgres connection via PostgresNIO (`PostgresDriver`)
 - [x] MySQL connection via MySQLNIO (`MySQLDriver`)
 - [x] Secure credential storage (Keychain) — `SecretStore`
 - [x] Connection persistence (`ConnectionStore`, JSON)
-- [ ] Connection status indicator
-- [x] SSL toggle logic (require / prefer / disable) — UI pending
+- [x] Connection status indicator (sidebar dot + workspace badge)
+- [x] SSL toggle (require / prefer / disable) — sheet picker + driver mapping
 
 ## Phase 2 — Browse (Day 5–7)
 

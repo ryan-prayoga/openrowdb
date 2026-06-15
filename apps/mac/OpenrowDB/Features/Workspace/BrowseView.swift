@@ -8,8 +8,9 @@ struct BrowseView: View {
     @Environment(ConnectionManager.self) private var manager
     let connectionID: UUID
 
-    private let pageSize = 100
+    private static let pageSizeOptions = [50, 100, 200, 500]
 
+    @State private var pageSize = 100
     @State private var tables: [TableRef] = []
     @State private var tableCounts: [TableRef.ID: Int] = [:]
     @State private var tablesError: String?
@@ -23,6 +24,8 @@ struct BrowseView: View {
     @State private var page = 0
     @State private var totalRows: Int?
     @State private var sortOrder: [ColumnComparator] = []
+    @State private var selectedRowID: Int?
+    @State private var showRowInspector = false
 
     private var selectedTable: TableRef? {
         tables.first { $0.id == selectedTableID }
@@ -60,15 +63,26 @@ struct BrowseView: View {
             sortOrder = []
             result = nil
             totalRows = nil
+            selectedRowID = nil
             Task {
                 await loadCount()
                 await loadRows()
             }
         }
-        .onChange(of: page) { Task { await loadRows() } }
+        .onChange(of: page) {
+            selectedRowID = nil
+            Task { await loadRows() }
+        }
         .onChange(of: sortOrder) {
             page = 0
             Task { await loadRows() }
+        }
+        .onChange(of: pageSize) {
+            page = 0
+            Task { await loadRows() }
+        }
+        .onChange(of: selectedRowID) {
+            if selectedRowID != nil { showRowInspector = true }
         }
     }
 
@@ -86,7 +100,8 @@ struct BrowseView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh")
+                .help("Refresh (⌘R)")
+                .keyboardShortcut("r", modifiers: .command)
                 .disabled(loadingTables)
             }
             .padding(.horizontal, 10)
@@ -135,9 +150,13 @@ struct BrowseView: View {
             ContentUnavailableView("No rows", systemImage: "tablecells")
         } else if let result, !result.columns.isEmpty {
             VStack(spacing: 0) {
-                ResultsTable(result: result, sortOrder: $sortOrder)
+                ResultsTable(result: result, sortOrder: $sortOrder, selection: $selectedRowID)
                 Divider()
                 paginationBar
+            }
+            .inspector(isPresented: $showRowInspector) {
+                RowInspector(result: result, selectedRowID: selectedRowID)
+                    .inspectorColumnWidth(min: 240, ideal: 300, max: 460)
             }
         } else {
             Color.clear
@@ -146,6 +165,10 @@ struct BrowseView: View {
 
     private var firstRowIndex: Int { page * pageSize + 1 }
     private var lastRowIndex: Int { page * pageSize + (result?.rows.count ?? 0) }
+    private var totalPages: Int {
+        guard let totalRows, totalRows > 0 else { return 1 }
+        return (totalRows + pageSize - 1) / pageSize
+    }
     private var hasNextPage: Bool {
         guard let totalRows else { return (result?.rows.count ?? 0) == pageSize }
         return (page + 1) * pageSize < totalRows
@@ -161,6 +184,14 @@ struct BrowseView: View {
                 .disabled(!hasNextPage || loadingRows)
                 .labelStyle(.iconOnly)
 
+            if totalRows != nil {
+                Text("Page")
+                    .font(.callout).foregroundStyle(.secondary)
+                PageJumpField(page: $page, totalPages: totalPages)
+                Text("of \(totalPages)")
+                    .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            }
+
             Text(rangeLabel)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -169,7 +200,23 @@ struct BrowseView: View {
             if loadingRows {
                 ProgressView().controlSize(.small)
             }
+
             Spacer()
+
+            Picker("Rows", selection: $pageSize) {
+                ForEach(Self.pageSizeOptions, id: \.self) { size in
+                    Text("\(size) / page").tag(size)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 110)
+
+            Button {
+                showRowInspector.toggle()
+            } label: {
+                Image(systemName: "sidebar.trailing")
+            }
+            .help("Toggle row detail")
         }
         .buttonStyle(.glass)
         .padding(.horizontal, 12)
@@ -277,6 +324,7 @@ private struct ColumnComparator: SortComparator {
 private struct ResultsTable: View {
     let result: QueryResult
     @Binding var sortOrder: [ColumnComparator]
+    @Binding var selection: Int?
 
     private var columns: [ResultColumn] {
         result.columns.enumerated().map { ResultColumn(id: $0.offset, name: $0.element) }
@@ -290,7 +338,7 @@ private struct ResultsTable: View {
         if columns.isEmpty {
             ContentUnavailableView("No columns", systemImage: "tablecells")
         } else {
-            Table(rows, sortOrder: $sortOrder) {
+            Table(rows, selection: $selection, sortOrder: $sortOrder) {
                 TableColumnForEach(columns) { column in
                     TableColumn(
                         column.name,
@@ -307,6 +355,76 @@ private struct ResultsTable: View {
     private func cell(_ value: String?) -> some View {
         if let value {
             Text(value).monospaced().textSelection(.enabled)
+        } else {
+            Text("NULL").foregroundStyle(.secondary).italic()
+        }
+    }
+}
+
+/// A 1-based page number field that jumps on commit, clamped to [1, totalPages].
+private struct PageJumpField: View {
+    @Binding var page: Int
+    let totalPages: Int
+
+    @State private var text: String = ""
+
+    var body: some View {
+        TextField("", text: $text)
+            .frame(width: 44)
+            .multilineTextAlignment(.center)
+            .monospacedDigit()
+            .onAppear { text = "\(page + 1)" }
+            .onChange(of: page) { text = "\(page + 1)" }
+            .onSubmit { commit() }
+    }
+
+    private func commit() {
+        guard let value = Int(text) else {
+            text = "\(page + 1)"
+            return
+        }
+        let clamped = min(max(value, 1), totalPages)
+        page = clamped - 1
+        text = "\(clamped)"
+    }
+}
+
+/// Trailing inspector showing every column/value of the selected row, copyable.
+private struct RowInspector: View {
+    let result: QueryResult
+    let selectedRowID: Int?
+
+    private var row: [String?]? {
+        guard let selectedRowID, result.rows.indices.contains(selectedRowID) else { return nil }
+        return result.rows[selectedRowID]
+    }
+
+    var body: some View {
+        Group {
+            if let row {
+                List {
+                    ForEach(Array(result.columns.enumerated()), id: \.offset) { index, name in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            valueText(row.indices.contains(index) ? row[index] : nil)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            } else {
+                ContentUnavailableView("No row selected", systemImage: "rectangle.and.text.magnifyingglass")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func valueText(_ value: String?) -> some View {
+        if let value {
+            Text(value).monospaced().font(.callout).textSelection(.enabled)
         } else {
             Text("NULL").foregroundStyle(.secondary).italic()
         }

@@ -33,14 +33,16 @@ struct WorkspaceView: View {
                     Button("Connect") {
                         Task { await manager.connect(connectionID) }
                     }
+                    .buttonStyle(.glassProminent)
                     .disabled(isConnected || isConnecting)
 
                     Button("Disconnect") {
                         Task { await manager.disconnect(connectionID) }
                     }
+                    .buttonStyle(.glass)
                     .disabled(!isConnected)
                 }
-                .buttonStyle(.bordered)
+                .controlSize(.large)
 
                 Text("Schema tree + query editor land here in Phase 2.")
                     .font(.caption)

@@ -67,11 +67,15 @@ cd openrowdb/apps/mac
 # Build + test the core + app via SwiftPM
 swift build
 swift test
-swift run OpenrowDB   # launch the app
+
+# Launch the app (builds, wraps in a .app bundle, ad-hoc signs, opens)
+scripts/run.sh
 ```
 
-> A packaged `.xcodeproj` (Info.plist, entitlements, codesign) arrives in
-> Phase 5. Until then the app builds and runs straight from SwiftPM.
+> The app currently builds and runs straight from SwiftPM. `scripts/run.sh`
+> wraps the binary in a minimal bundle so the window gets full keyboard focus,
+> a Dock icon, and smooth animations. A signed/notarized `.xcodeproj` build
+> arrives in Phase 5.
 
 ## Project layout
 

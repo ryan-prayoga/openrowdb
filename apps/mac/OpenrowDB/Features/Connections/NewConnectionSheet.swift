@@ -68,9 +68,11 @@ struct NewConnectionSheet: View {
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.glass)
                 Spacer()
                 Button("Save") { save() }
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
                     .disabled(!canSave)
             }
             .padding()

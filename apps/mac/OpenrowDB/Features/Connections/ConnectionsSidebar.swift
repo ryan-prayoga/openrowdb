@@ -10,7 +10,7 @@ struct ConnectionsSidebar: View {
 
     var body: some View {
         List(selection: $selection) {
-            Section("Connections") {
+            Section {
                 if manager.connections.isEmpty {
                     Text("No connections yet")
                         .foregroundStyle(.secondary)
@@ -29,18 +29,22 @@ struct ConnectionsSidebar: View {
                         }
                     }
                 }
-            }
-        }
-        .listStyle(.sidebar)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingNewConnection = true
-                } label: {
-                    Label("New Connection", systemImage: "plus")
+            } header: {
+                HStack {
+                    Text("Connections")
+                    Spacer()
+                    Button {
+                        showingNewConnection = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .help("New Connection")
                 }
             }
         }
+        .listStyle(.sidebar)
     }
 }
 

@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "OpenrowDBCore",
     platforms: [
-        .macOS(.v15)  // bump to v26 when SwiftPM ships macOS 26 support; v15 is the floor for now
+        .macOS(.v26)  // Liquid Glass (glassEffect / .glass button style) is macOS 26 Tahoe only
     ],
     products: [
         .library(name: "OpenrowDBCore", targets: ["OpenrowDBCore"]),

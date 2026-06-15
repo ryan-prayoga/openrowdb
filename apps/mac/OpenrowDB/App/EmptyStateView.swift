@@ -19,7 +19,8 @@ struct EmptyStateView: View {
             } label: {
                 Label("New Connection", systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

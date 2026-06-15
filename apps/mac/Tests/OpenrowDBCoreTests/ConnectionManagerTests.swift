@@ -15,6 +15,7 @@ private final class MockDatabaseClient: DatabaseClient {
     let state = Mutex<State>(State())
     let shouldFailConnect: Bool
     let cannedResult: QueryResult
+    let dialect: SQLDialect = .postgres
 
     init(shouldFailConnect: Bool = false, cannedResult: QueryResult = .empty) {
         self.shouldFailConnect = shouldFailConnect

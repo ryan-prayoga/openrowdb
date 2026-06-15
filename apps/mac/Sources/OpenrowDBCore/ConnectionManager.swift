@@ -109,10 +109,24 @@ public final class ConnectionManager {
 
     /// Run SQL against an already-connected id.
     public func run(_ sql: String, on id: UUID) async throws -> QueryResult {
+        try await client(for: id).query(sql)
+    }
+
+    /// List user tables for an already-connected id.
+    public func tables(on id: UUID) async throws -> [TableRef] {
+        try await client(for: id).listTables()
+    }
+
+    /// Fetch a page of rows from a table on an already-connected id.
+    public func fetchRows(_ table: TableRef, on id: UUID, limit: Int, offset: Int) async throws -> QueryResult {
+        try await client(for: id).fetchRows(table, limit: limit, offset: offset)
+    }
+
+    private func client(for id: UUID) throws -> any DatabaseClient {
         guard let client = clients[id] else {
             throw DatabaseError.notConnected
         }
-        return try await client.query(sql)
+        return client
     }
 
     // MARK: - Helpers

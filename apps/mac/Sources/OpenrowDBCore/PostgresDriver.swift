@@ -18,6 +18,8 @@ public final class PostgresDriver: DatabaseClient {
         var runTask: Task<Void, Never>?
     }
 
+    public let dialect: SQLDialect = .postgres
+
     public init(connection: Connection, password: String?) {
         self.connection = connection
         self.password = password

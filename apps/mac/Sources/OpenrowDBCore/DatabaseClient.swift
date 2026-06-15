@@ -11,8 +11,27 @@ public protocol DatabaseClient: Sendable {
     /// Run a SQL string and return its result set.
     func query(_ sql: String) async throws -> QueryResult
 
+    /// The SQL dialect this client speaks (drives introspection queries).
+    var dialect: SQLDialect { get }
+
     /// Tear down the connection and release all resources. Idempotent.
     func close() async
+}
+
+public extension DatabaseClient {
+    /// List user tables via `information_schema`.
+    func listTables() async throws -> [TableRef] {
+        let result = try await query(dialect.listTablesSQL)
+        return result.rows.compactMap { row in
+            guard row.count >= 2, let schema = row[0], let name = row[1] else { return nil }
+            return TableRef(schema: schema, name: name)
+        }
+    }
+
+    /// Fetch a page of rows from a table.
+    func fetchRows(_ table: TableRef, limit: Int, offset: Int) async throws -> QueryResult {
+        try await query(dialect.selectRowsSQL(table, limit: limit, offset: offset))
+    }
 }
 
 /// Errors surfaced by the Core database layer.

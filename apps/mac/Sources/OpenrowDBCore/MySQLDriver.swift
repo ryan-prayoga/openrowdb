@@ -20,6 +20,8 @@ public final class MySQLDriver: DatabaseClient {
         var group: EventLoopGroup?
     }
 
+    public let dialect: SQLDialect = .mysql
+
     public init(connection: Connection, password: String?) {
         self.connection = connection
         self.password = password

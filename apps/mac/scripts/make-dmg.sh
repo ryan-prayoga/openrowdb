@@ -6,43 +6,46 @@
 #
 # Pre-requisites:
 #   brew install create-dmg
-#   A built + codesigned .app at build/Release/OpenrowDB.app
-#   (build via Xcode: Product → Archive, or xcodebuild -scheme OpenrowDB)
+#   A built .app at build/release/OpenrowDB.app
+#   (run ./scripts/make-app.sh release first, or let this script build it)
 #
-# The entitlements file + hardened runtime flag is set in Xcode signing settings.
-# Notarization is a separate step after DMG creation:
-#   xcrun notarytool submit dist/OpenrowDB-$VERSION.dmg \
-#       --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --wait
-
+# Notarization (optional, after DMG):
+#   NOTARIZE=1 ./scripts/release.sh 0.1.0
+#   # or: ./scripts/notarize.sh dist/OpenrowDB-0.1.0.dmg
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAC_DIR="$SCRIPT_DIR/.."
 VERSION="${1:-0.1.0}"
 APP_NAME="OpenrowDB"
-BUILD_DIR="$MAC_DIR/build/Release"
+BUILD_DIR="$MAC_DIR/build/release"
 DIST_DIR="$MAC_DIR/dist"
 APP_PATH="$BUILD_DIR/${APP_NAME}.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.dmg"
+VOLICON="$MAC_DIR/OpenrowDB/Resources/Assets.xcassets/AppIcon.appiconset/icon_512.png"
 
 if [[ ! -d "$APP_PATH" ]]; then
-    echo "ERROR: $APP_PATH not found."
-    echo "Build the app first: open Package.swift in Xcode → Product → Archive → Distribute App"
-    exit 1
+  echo "==> No .app found — building via make-app.sh…"
+  VERSION="$VERSION" "$SCRIPT_DIR/make-app.sh" release
 fi
 
 if ! command -v create-dmg &>/dev/null; then
-    echo "ERROR: create-dmg not found. Install: brew install create-dmg"
-    exit 1
+  echo "ERROR: create-dmg not found. Install: brew install create-dmg"
+  exit 1
 fi
 
 mkdir -p "$DIST_DIR"
 rm -f "$DMG_PATH"
 
+ICON_ARGS=()
+if [[ -f "$VOLICON" ]]; then
+  ICON_ARGS=(--volicon "$VOLICON")
+fi
+
 echo "==> Creating DMG for ${APP_NAME} ${VERSION}…"
 create-dmg \
     --volname "${APP_NAME} ${VERSION}" \
-    --volicon "$SCRIPT_DIR/../OpenrowDB/Resources/Assets.xcassets/AppIcon.appiconset/icon_512.png" \
+    "${ICON_ARGS[@]}" \
     --window-pos 200 120 \
     --window-size 660 400 \
     --icon-size 128 \
@@ -53,8 +56,10 @@ create-dmg \
     "$BUILD_DIR/"
 
 echo "==> DMG written to: $DMG_PATH"
-echo ""
-echo "Next steps:"
-echo "  1. Notarize: xcrun notarytool submit \"$DMG_PATH\" --apple-id ... --team-id ... --wait"
-echo "  2. Staple:   xcrun stapler staple \"$DMG_PATH\""
-echo "  3. Upload to GitHub Release as an asset."
+if [[ "${SIGN_IDENTITY:--}" != "-" ]]; then
+  echo "Next: NOTARIZE=1 ./scripts/release.sh ${VERSION}"
+else
+  echo ""
+  echo "Unsigned build. Users must clear quarantine after download:"
+  echo "  xattr -d com.apple.quarantine /Applications/OpenrowDB.app"
+fi

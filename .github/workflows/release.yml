@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$XCODE" ]; then
+            sudo xcode-select -s "$XCODE/Contents/Developer"
+          fi
+          swift --version
+
+      - name: Test
+        working-directory: apps/mac
+        run: swift test --parallel
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build app bundle
+        working-directory: apps/mac
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: chmod +x scripts/*.sh && ./scripts/make-app.sh release
+
+      - name: Create DMG
+        working-directory: apps/mac
+        run: ./scripts/make-dmg.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenrowDB-${{ steps.ver.outputs.version }}-macOS
+          path: |
+            apps/mac/dist/OpenrowDB-${{ steps.ver.outputs.version }}.dmg
+            apps/mac/build/release/OpenrowDB.app
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/mac/dist/OpenrowDB-${{ steps.ver.outputs.version }}.dmg
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

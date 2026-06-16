@@ -8,7 +8,8 @@ Built with SwiftUI + Liquid Glass for macOS. Postgres & MySQL first.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-blue)](https://www.apple.com/macos/)
-[![Status](https://img.shields.io/badge/status-alpha-orange)]()
+[![macOS Build](https://github.com/ryan-prayoga/openrowdb/actions/workflows/macos-build.yml/badge.svg)](https://github.com/ryan-prayoga/openrowdb/actions/workflows/macos-build.yml)
+[![Release](https://img.shields.io/github/v/release/ryan-prayoga/openrowdb?label=release)](https://github.com/ryan-prayoga/openrowdb/releases)
 [![Built with AI](https://img.shields.io/badge/built%20with-Claude%20%2B%20Codex-purple)]()
 
 </div>
@@ -28,13 +29,15 @@ Database GUI clients today are stuck between two extremes: powerful but ugly (DB
 
 ## Status
 
-🚧 **Alpha — active development.** First release targeted within 2 weeks of repo creation.
+🎉 **v0.1.0 preview** — macOS client ready for daily use with Postgres + MySQL. See [CHANGELOG](./CHANGELOG.md).
 
 | Platform | Status | Tech |
 |----------|--------|------|
-| macOS 26+ | 🏗️ In development | SwiftUI + Liquid Glass |
-| Windows | 📋 Planned (post v1) | TBD |
-| Linux | 📋 Planned (post v1) | TBD |
+| macOS 26+ | ✅ v0.1.0 preview | SwiftUI + Liquid Glass |
+| Windows | 🧱 Scaffolded (post v1) | WinUI 3 + .NET 9 |
+| Linux | 🧱 Scaffolded (post v1) | GTK 4 + libadwaita (Rust) |
+
+Shared Rust core for Windows/Linux: `crates/openrowdb-core`.
 
 ## Supported Databases (v1)
 
@@ -44,17 +47,21 @@ Database GUI clients today are stuck between two extremes: powerful but ugly (DB
 
 ## Install
 
-```bash
-# Homebrew (preferred — once published)
-brew install --cask openrowdb
+**[Download the latest DMG from Releases](https://github.com/ryan-prayoga/openrowdb/releases)** — drag OpenrowDB to Applications.
 
-# Manual download
-# Grab the latest DMG from Releases, then:
+```bash
+# If Gatekeeper blocks the app (unsigned / ad-hoc CI build):
 xattr -d com.apple.quarantine /Applications/OpenrowDB.app
 open /Applications/OpenrowDB.app
 ```
 
-> The quarantine flag removal is needed because v1 ships unsigned. Once we have an Apple Developer cert, this step goes away.
+```bash
+# Homebrew cask — coming soon
+# brew install --cask openrowdb
+```
+
+> Signed + notarized builds ship once an Apple Developer cert is configured.
+> Maintainer release command: `cd apps/mac && ./scripts/release.sh 0.1.0`
 
 ## Build from source
 
@@ -70,12 +77,14 @@ swift test
 
 # Launch the app (builds, wraps in a .app bundle, ad-hoc signs, opens)
 scripts/run.sh
+
+# Package a release DMG (unsigned ad-hoc by default)
+./scripts/release.sh 0.1.0
 ```
 
-> The app currently builds and runs straight from SwiftPM. `scripts/run.sh`
-> wraps the binary in a minimal bundle so the window gets full keyboard focus,
-> a Dock icon, and smooth animations. A signed/notarized `.xcodeproj` build
-> arrives in Phase 5.
+> `scripts/make-app.sh` produces a proper `.app` bundle (Info.plist, icon,
+> entitlements-ready signing). Set `SIGN_IDENTITY` for Developer ID signing and
+> `NOTARIZE=1` after configuring `notarize.sh` credentials.
 
 ## Project layout
 

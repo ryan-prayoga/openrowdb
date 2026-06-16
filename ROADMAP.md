@@ -8,9 +8,9 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] AGENTS.md / CLAUDE.md
 - [x] SwiftUI app via SwiftPM (`apps/mac/`)
 - [x] CI: macOS build workflow (`.github/workflows/macos-build.yml`)
-- [ ] Issue + PR templates
-- [ ] First commit + push to GitHub
-- [ ] Announce on X
+- [x] Issue + PR templates
+- [ ] First push to GitHub (maintainer)
+- [ ] Announce on X (maintainer)
 
 ## Phase 1 — Connect (Day 2–4)
 
@@ -87,17 +87,17 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Tab persistence across restart — `WorkspaceSessionStore` (`workspace.json`)
 - [ ] …see pre-release plan for full Tier A/B backlog
 
-## Phase 5 — Ship v0.1.0 (Day 14)
+## Phase 5 — Ship v0.1.0 (Day 14) ✅ (tooling ready)
 
-- [ ] Sign with Apple Developer cert (or unsigned + quarantine docs)
-  - `OpenrowDB.entitlements` → `OpenrowDB/Resources/OpenrowDB.entitlements` (network + Keychain)
-  - `Info.plist` → `OpenrowDB/Resources/Info.plist` (bundle ID `com.openrowdb.mac`, LSCategory developer-tools)
-  - Open `Package.swift` in Xcode, set Team + Bundle ID in target signing settings
-- [ ] Notarize (if signed) — `xcrun notarytool submit … --wait && xcrun stapler staple`
-- [x] DMG packaging script — `scripts/make-dmg.sh` (requires `brew install create-dmg` + signed .app)
-- [ ] GitHub Release with DMG + changelog
-- [ ] README badges live
-- [ ] Launch tweet + Show HN
+- [x] App bundle from SwiftPM — `scripts/make-app.sh` (Info.plist, icon, ad-hoc or `SIGN_IDENTITY`)
+- [x] Entitlements + Info.plist — `OpenrowDB/Resources/` (`com.openrowdb.mac`, developer-tools)
+- [x] DMG packaging — `scripts/make-dmg.sh` + `scripts/release.sh` orchestrator
+- [x] Notarize helper — `scripts/notarize.sh` (needs maintainer Apple ID + Developer ID cert)
+- [x] GitHub Release workflow — `.github/workflows/release.yml` (tag `v*` → DMG artifact + release)
+- [x] CHANGELOG + README badges
+- [ ] Sign with Apple Developer cert (maintainer — set `SIGN_IDENTITY` locally)
+- [ ] Push tag `v0.1.0` + publish GitHub Release (maintainer)
+- [ ] Launch tweet + Show HN (maintainer)
 
 ## Post v1 — backlog
 - [ ] SQLite driver

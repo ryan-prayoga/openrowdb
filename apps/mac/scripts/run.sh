@@ -38,7 +38,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>OpenrowDB</string>
-  <key>CFBundleIdentifier</key><string>com.openrowdb.app</string>
+  <key>CFBundleIdentifier</key><string>com.openrowdb.mac</string>
   <key>CFBundleName</key><string>OpenrowDB</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>

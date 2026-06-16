@@ -47,11 +47,17 @@ Shared Rust core for Windows/Linux: `crates/openrowdb-core`.
 
 ## Install
 
-**[Download the latest DMG from Releases](https://github.com/ryan-prayoga/openrowdb/releases)** — drag OpenrowDB to Applications.
+**One-liner** (unsigned build, no Apple Developer ID):
 
 ```bash
-# If Gatekeeper blocks the app (unsigned / ad-hoc CI build):
-xattr -d com.apple.quarantine /Applications/OpenrowDB.app
+curl -fsSL https://openrowdb.ryanprayoga.dev/install.sh | bash
+```
+
+Or **[download from Releases](https://github.com/ryan-prayoga/openrowdb/releases)** / [openrowdb.ryanprayoga.dev](https://openrowdb.ryanprayoga.dev).
+
+```bash
+# Manual quarantine fix if needed:
+xattr -cr /Applications/OpenrowDB.app
 open /Applications/OpenrowDB.app
 ```
 

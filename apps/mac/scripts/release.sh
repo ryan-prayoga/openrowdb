@@ -16,6 +16,7 @@ export VERSION
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 "$SCRIPT_DIR/make-app.sh" release
+"$SCRIPT_DIR/make-zip.sh" "$VERSION"
 "$SCRIPT_DIR/make-dmg.sh" "$VERSION"
 
 DMG="$SCRIPT_DIR/../dist/OpenrowDB-${VERSION}.dmg"

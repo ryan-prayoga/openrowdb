@@ -18,6 +18,11 @@ enum WorkspaceTab: Hashable, Identifiable {
     }
 }
 
+struct TableTabFilter: Equatable, Sendable {
+    let column: String
+    let value: String
+}
+
 @MainActor
 @Observable
 final class WorkspaceTabsState {
@@ -26,6 +31,18 @@ final class WorkspaceTabsState {
 
     @ObservationIgnored
     private var runnersByTab: [UUID: QueryRunner] = [:]
+
+    @ObservationIgnored
+    private var tableFilters: [String: TableTabFilter] = [:]
+
+    @ObservationIgnored
+    private var restoredConnections: Set<UUID> = []
+
+    @ObservationIgnored
+    private var persistTasks: [UUID: Task<Void, Never>] = [:]
+
+    @ObservationIgnored
+    var sessionStore: WorkspaceSessionStore?
 
     // Structure tab metadata lives off the observable graph (closures are not
     // observable-compatible) but is managed alongside tab open/close.
@@ -67,6 +84,79 @@ final class WorkspaceTabsState {
 
     func select(_ tab: WorkspaceTab, for connectionID: UUID) {
         selectionByConnection[connectionID] = tab
+        schedulePersist(for: connectionID)
+    }
+
+    func tableFilter(for table: TableRef) -> TableTabFilter? {
+        tableFilters[table.id]
+    }
+
+    /// Restore tabs from disk once per connection per app launch.
+    func restoreIfNeeded(
+        for connectionID: UUID,
+        manager: ConnectionManager,
+        history: QueryHistoryStore
+    ) {
+        guard !restoredConnections.contains(connectionID) else { return }
+        restoredConnections.insert(connectionID)
+        guard tabs(for: connectionID).isEmpty,
+              let store = sessionStore,
+              let data = try? store.load(for: connectionID),
+              !data.tabs.isEmpty else { return }
+
+        var restored: [WorkspaceTab] = []
+        for persisted in data.tabs {
+            switch persisted {
+            case .query(let id, let sql):
+                restored.append(.query(id))
+                let runner = self.runner(for: id, connectionID: connectionID, manager: manager, history: history)
+                runner.sql = sql
+            case .table(let ref, let filterColumn, let filterValue):
+                restored.append(.table(ref))
+                if let filterColumn, let filterValue, !filterColumn.isEmpty, !filterValue.isEmpty {
+                    tableFilters[ref.id] = TableTabFilter(column: filterColumn, value: filterValue)
+                }
+            }
+        }
+        tabsByConnection[connectionID] = restored
+        if let key = data.selectedTabKey,
+           let match = restored.first(where: { $0.id == key }) {
+            selectionByConnection[connectionID] = match
+        } else {
+            selectionByConnection[connectionID] = restored.first
+        }
+    }
+
+    func schedulePersist(for connectionID: UUID) {
+        persistTasks[connectionID]?.cancel()
+        persistTasks[connectionID] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.persistNow(for: connectionID)
+        }
+    }
+
+    func persistNow(for connectionID: UUID) {
+        guard let store = sessionStore else { return }
+        let tabs = tabs(for: connectionID)
+        var persisted: [PersistedWorkspaceTab] = []
+        for tab in tabs {
+            switch tab {
+            case .query(let id):
+                let sql = runnersByTab[id]?.sql ?? ""
+                persisted.append(.query(id: id, sql: sql))
+            case .table(let ref):
+                let filter = tableFilters[ref.id]
+                persisted.append(.table(ref: ref, filterColumn: filter?.column, filterValue: filter?.value))
+            case .structure:
+                continue
+            }
+        }
+        let data = WorkspaceSessionData(
+            tabs: persisted,
+            selectedTabKey: selection(for: connectionID)?.id
+        )
+        try? store.save(data, for: connectionID)
     }
 
     @discardableResult
@@ -76,20 +166,31 @@ final class WorkspaceTabsState {
         current.append(tab)
         tabsByConnection[connectionID] = current
         selectionByConnection[connectionID] = tab
+        schedulePersist(for: connectionID)
         return tab
     }
 
     @discardableResult
-    func openTableTab(_ table: TableRef, for connectionID: UUID) -> WorkspaceTab {
+    func openTableTab(
+        _ table: TableRef,
+        for connectionID: UUID,
+        filterColumn: String? = nil,
+        filterValue: String? = nil
+    ) -> WorkspaceTab {
+        if let filterColumn, let filterValue, !filterColumn.isEmpty, !filterValue.isEmpty {
+            tableFilters[table.id] = TableTabFilter(column: filterColumn, value: filterValue)
+        }
         var current = tabs(for: connectionID)
         let tab = WorkspaceTab.table(table)
         if let existing = current.firstIndex(of: tab) {
             selectionByConnection[connectionID] = current[existing]
+            schedulePersist(for: connectionID)
             return current[existing]
         }
         current.append(tab)
         tabsByConnection[connectionID] = current
         selectionByConnection[connectionID] = tab
+        schedulePersist(for: connectionID)
         return tab
     }
 
@@ -115,6 +216,7 @@ final class WorkspaceTabsState {
         current.append(.structure(tabID))
         tabsByConnection[connectionID] = current
         selectionByConnection[connectionID] = .structure(tabID)
+        schedulePersist(for: connectionID)
     }
 
     func closeTab(_ tab: WorkspaceTab, for connectionID: UUID) {
@@ -126,7 +228,8 @@ final class WorkspaceTabsState {
         switch tab {
         case .query(let id): runnersByTab[id] = nil
         case .structure(let id): structureMeta[id] = nil
-        case .table: break
+        case .table(let ref):
+            tableFilters[ref.id] = nil
         }
 
         if selectionByConnection[connectionID] == tab {
@@ -134,6 +237,7 @@ final class WorkspaceTabsState {
                 ? current[removedIndex - 1]
                 : current.first
         }
+        schedulePersist(for: connectionID)
     }
 
     func closeSelectedTab(for connectionID: UUID) {
@@ -146,10 +250,11 @@ final class WorkspaceTabsState {
             switch tab {
             case .query(let id): runnersByTab[id] = nil
             case .structure(let id): structureMeta[id] = nil
-            case .table: break
+            case .table(let ref): tableFilters[ref.id] = nil
             }
         }
         tabsByConnection[connectionID] = nil
         selectionByConnection[connectionID] = nil
+        schedulePersist(for: connectionID)
     }
 }

@@ -264,6 +264,7 @@ private struct DatabaseNode: View {
     @State private var ddlError: String?
 
     private var searching: Bool { !search.isEmpty }
+    private var isReadOnly: Bool { manager.isReadOnly(connectionID) }
 
     private var schemas: [String] {
         var seen: [String] = []
@@ -304,16 +305,18 @@ private struct DatabaseNode: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-                Button("New Table…") {
-                    onSelectConnection()
-                    tabs.openStructureTab(
-                        for: connectionID,
-                        dialect: dialect,
-                        database: database,
-                        schemas: allSchemas,
-                        defaultSchema: defaultSchema,
-                        onSaved: { table in Task { await reloadKeeping(select: table) } }
-                    )
+                if !isReadOnly {
+                    Button("New Table…") {
+                        onSelectConnection()
+                        tabs.openStructureTab(
+                            for: connectionID,
+                            dialect: dialect,
+                            database: database,
+                            schemas: allSchemas,
+                            defaultSchema: defaultSchema,
+                            onSaved: { table in Task { await reloadKeeping(select: table) } }
+                        )
+                    }
                 }
             }
 
@@ -413,7 +416,7 @@ private struct DatabaseNode: View {
                 onSelectConnection()
                 tabs.openTableTab(table, for: connectionID)
             }
-            if table.kind == .table {
+            if table.kind == .table, !isReadOnly {
                 Button("Edit Structure…") {
                     onSelectConnection()
                     tabs.openStructureTab(
@@ -426,12 +429,14 @@ private struct DatabaseNode: View {
                         onSaved: { saved in Task { await reloadKeeping(select: saved) } }
                     )
                 }
+            }
+            if table.kind == .table {
                 Button("Export as SQL…") { exportTable(table) }
             }
             Divider()
             Button("Copy Name") { copy(table.name) }
             Button("Copy Qualified Name") { copy("\(table.schema).\(table.name)") }
-            if table.kind == .table {
+            if table.kind == .table, !isReadOnly {
                 Divider()
                 Button("Drop Table…", role: .destructive) { pendingDropTable = table }
             }

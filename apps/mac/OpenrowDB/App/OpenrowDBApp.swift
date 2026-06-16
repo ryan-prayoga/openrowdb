@@ -25,10 +25,12 @@ struct OpenrowDBApp: App {
     @State private var history = OpenrowDBApp.makeHistory()
     @State private var snippets = OpenrowDBApp.makeSnippets()
     @State private var tabs = WorkspaceTabsState()
+    @State private var sessionStore = OpenrowDBApp.makeSessionStore()
     @State private var refreshCoordinator = RefreshCoordinator()
     @State private var showingNewConnection = false
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var showingShortcuts = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -40,6 +42,14 @@ struct OpenrowDBApp: App {
                 .environment(refreshCoordinator)
                 .task {
                     try? manager.reload()
+                    tabs.sessionStore = sessionStore
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background {
+                        for connection in manager.connections {
+                            tabs.persistNow(for: connection.id)
+                        }
+                    }
                 }
                 .sheet(isPresented: $showingOnboarding, onDismiss: {
                     // onDismiss fires after the sheet animation completes —
@@ -103,6 +113,17 @@ struct OpenrowDBApp: App {
             let fallback = FileManager.default.temporaryDirectory
                 .appendingPathComponent("OpenrowDB/history.sqlite")
             return try! QueryHistoryStore(fileURL: fallback)
+        }
+    }
+
+    @MainActor
+    private static func makeSessionStore() -> WorkspaceSessionStore {
+        do {
+            return try WorkspaceSessionStore()
+        } catch {
+            let fallback = FileManager.default.temporaryDirectory
+                .appendingPathComponent("OpenrowDB/workspace.json")
+            return try! WorkspaceSessionStore(fileURL: fallback)
         }
     }
 

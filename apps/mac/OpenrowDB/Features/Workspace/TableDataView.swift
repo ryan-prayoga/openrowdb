@@ -10,6 +10,7 @@ import SwiftUI
 /// browsing + editing lives in exactly one place.
 struct TableDataView: View {
     @Environment(ConnectionManager.self) private var manager
+    @Environment(WorkspaceTabsState.self) private var tabs
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connectionID: UUID
     let table: TableRef
@@ -33,6 +34,7 @@ struct TableDataView: View {
     @State private var columns: [ColumnInfo] = []
     @State private var columnTypes: [String: String] = [:]
     @State private var primaryKeys: [String] = []
+    @State private var foreignKeys: [ForeignKeyRef] = []
 
     @State private var search = ""
     @State private var appliedSearch = ""
@@ -60,7 +62,7 @@ struct TableDataView: View {
     // Inline edit state — shared with ResultsGrid cells via @Observable
     @State private var editState = InlineEditState()
 
-    private var canMutate: Bool { table.kind == .table }
+    private var canMutate: Bool { table.kind == .table && !manager.isReadOnly(connectionID) }
     /// Per-row edit/delete needs a primary key to target exactly one row. Without
     /// one we'd have to match on rendered cell text, which doesn't reliably round
     /// trip (floats, timestamps, json) — so those actions are disabled instead.
@@ -228,8 +230,14 @@ struct TableDataView: View {
                 paginationBar
             }
             .inspector(isPresented: $showRowInspector) {
-                RowInspector(result: result, selectedRowID: selectedRowID, columnTypes: columnTypes)
-                    .inspectorColumnWidth(min: 240, ideal: 300, max: 460)
+                RowInspector(
+                    result: result,
+                    selectedRowID: selectedRowID,
+                    columnTypes: columnTypes,
+                    foreignKeys: foreignKeys,
+                    onFollowFK: followForeignKey
+                )
+                .inspectorColumnWidth(min: 240, ideal: 300, max: 460)
             }
         } else if loadingRows {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -304,7 +312,11 @@ struct TableDataView: View {
 
             Spacer()
 
-            if canMutate {
+            if manager.isReadOnly(connectionID) {
+                Label("Read-only", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if canMutate {
                 if editState.rowID != nil {
                     Button { cancelInlineEdit() } label: { Label("Cancel", systemImage: "xmark") }
                         .keyboardShortcut(.cancelAction)
@@ -400,6 +412,17 @@ struct TableDataView: View {
             return "\(firstRowIndex)–\(lastRowIndex) of \(prefix)\(totalRows.value)"
         }
         return "\(firstRowIndex)–\(lastRowIndex)"
+    }
+
+    // MARK: - Foreign keys
+
+    private func followForeignKey(_ fk: ForeignKeyRef, value: String) {
+        tabs.openTableTab(
+            fk.referencedTable,
+            for: connectionID,
+            filterColumn: fk.referencedColumn,
+            filterValue: value
+        )
     }
 
     // MARK: - Row editing
@@ -556,8 +579,15 @@ struct TableDataView: View {
         filterValue = ""
         appliedFilterColumn = ""
         appliedFilterValue = ""
+        if let preset = tabs.tableFilter(for: table) {
+            filterColumn = preset.column
+            filterValue = preset.value
+            appliedFilterColumn = preset.column
+            appliedFilterValue = preset.value
+        }
         await loadColumns()
         await loadKeys()
+        await loadForeignKeys()
         await loadCount()
         await loadRows()
         isResetting = false
@@ -602,6 +632,7 @@ struct TableDataView: View {
     private func refreshCurrentPage() async {
         await loadColumns()
         await loadKeys()
+        await loadForeignKeys()
         await loadCount()
         await loadRows()
     }
@@ -614,8 +645,13 @@ struct TableDataView: View {
     }
 
     private func loadKeys() async {
-        guard canMutate else { return }
+        guard table.kind == .table else { return }
         primaryKeys = (try? await manager.primaryKeyColumns(of: table, on: connectionID)) ?? []
+    }
+
+    private func loadForeignKeys() async {
+        guard table.kind == .table else { return }
+        foreignKeys = (try? await manager.foreignKeys(of: table, on: connectionID)) ?? []
     }
 
     private func loadCount() async {

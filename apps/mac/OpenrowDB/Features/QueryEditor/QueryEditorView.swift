@@ -18,6 +18,11 @@ struct QueryEditorView: View {
 
     @State private var showHistory = false
     @State private var showSnippets = false
+    @State private var showExplain = false
+    @State private var explainSQL = ""
+    @State private var explainResult: QueryResult?
+    @State private var explainError: String?
+    @State private var explainLoading = false
     @State private var jumpRequest: Int = 0
     @FocusState private var editorFocused: Bool
 
@@ -98,6 +103,17 @@ struct QueryEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: refreshCoordinator.signal(for: connectionID)) { _, _ in
             Task { await runner.catalog.refresh() }
+        }
+        .onChange(of: runner.sql) { _, _ in
+            tabs.schedulePersist(for: connectionID)
+        }
+        .sheet(isPresented: $showExplain) {
+            ExplainPlanView(
+                sql: explainSQL,
+                result: explainResult,
+                error: explainError,
+                loading: explainLoading
+            )
         }
     }
 
@@ -199,6 +215,21 @@ struct QueryEditorView: View {
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .help("Format SQL (⌘⇧F)")
 
+            Button {
+                runExplain(runner: runner)
+            } label: {
+                Label("Explain", systemImage: "list.bullet.rectangle")
+            }
+            .buttonStyle(.glass)
+            .disabled(isRunning(runner.state) || runner.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Show EXPLAIN plan for the first statement")
+
+            if manager.isReadOnly(connectionID) {
+                Label("Read-only", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Spacer()
 
             ExportButton(outcomes: runner.outcomes)
@@ -279,5 +310,25 @@ struct QueryEditorView: View {
 
     private func firstErrorPosition(in outcomes: [QueryRunner.StatementOutcome]) -> Int? {
         outcomes.first(where: { $0.errorPosition != nil })?.errorPosition
+    }
+
+    private func runExplain(runner: QueryRunner) {
+        let statements = SQLStatementSplitter.split(runner.sql)
+        guard let first = statements.first else { return }
+        explainSQL = first
+        explainResult = nil
+        explainError = nil
+        explainLoading = true
+        showExplain = true
+        Task {
+            do {
+                explainResult = try await manager.explain(first, on: connectionID)
+                explainError = nil
+            } catch {
+                explainResult = nil
+                explainError = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+            }
+            explainLoading = false
+        }
     }
 }

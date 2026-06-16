@@ -112,6 +112,31 @@ final class SQLMutationsTests: XCTestCase {
         )
     }
 
+    // MARK: - Explain & foreign keys
+
+    func testExplainSQLPostgres() {
+        let sql = SQLDialect.postgres.explainSQL("SELECT 1")
+        XCTAssertEqual(sql, "EXPLAIN (FORMAT TEXT) SELECT 1")
+    }
+
+    func testExplainSQLMySQL() {
+        let sql = SQLDialect.mysql.explainSQL("SELECT 1")
+        XCTAssertEqual(sql, "EXPLAIN SELECT 1")
+    }
+
+    func testForeignKeysSQLPostgres() {
+        let sql = SQLDialect.postgres.foreignKeysSQL(t)
+        XCTAssertTrue(sql.contains("FOREIGN KEY"))
+        XCTAssertTrue(sql.contains("table_schema = 'public'"))
+        XCTAssertTrue(sql.contains("table_name = 'Movie'"))
+    }
+
+    func testForeignKeysSQLMySQL() {
+        let sql = SQLDialect.mysql.foreignKeysSQL(mt)
+        XCTAssertTrue(sql.contains("referenced_table_schema"))
+        XCTAssertTrue(sql.contains("table_schema = 'shop'"))
+    }
+
     // MARK: - Primary keys
 
     func testPrimaryKeyColumnsSQLPostgresUsesRegclass() {

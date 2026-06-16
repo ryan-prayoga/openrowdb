@@ -69,6 +69,26 @@ public extension DatabaseClient {
         return result.rows.compactMap { $0.first ?? nil }
     }
 
+    /// Outgoing foreign-key constraints from a table's columns.
+    func foreignKeys(of table: TableRef) async throws -> [ForeignKeyRef] {
+        let result = try await query(dialect.foreignKeysSQL(table))
+        return result.rows.compactMap { row in
+            guard row.count >= 4,
+                  let column = row[0],
+                  let refSchema = row[1],
+                  let refTable = row[2],
+                  let refColumn = row[3] else { return nil }
+            let refDatabase = (dialect == .mysql) ? refSchema : table.database
+            let referenced = TableRef(
+                database: refDatabase,
+                schema: refSchema,
+                name: refTable,
+                kind: .table
+            )
+            return ForeignKeyRef(column: column, referencedTable: referenced, referencedColumn: refColumn)
+        }
+    }
+
     /// Full column definitions (type, nullability, default, primary-key flag) for
     /// generating a `CREATE TABLE` in a SQL dump. Sequence/identity-backed
     /// defaults (`nextval(...)`) are dropped because a logical dump doesn't
@@ -109,6 +129,8 @@ public enum DatabaseError: Error, Sendable, Equatable {
     /// 1-indexed character offset in the submitted SQL where the server
     /// pinpointed the error (Postgres only — MySQL doesn't return one).
     case query(code: String?, message: String, hint: String?, position: Int?)
+    /// A write was blocked because the connection is read-only.
+    case readOnly
 }
 
 public extension DatabaseError {
@@ -127,6 +149,8 @@ public extension DatabaseError {
             if let code, !code.isEmpty { line += " (\(code))" }
             if let hint, !hint.isEmpty { line += "\nHint: \(hint)" }
             return line
+        case .readOnly:
+            return "This connection is read-only. Disconnect and edit the connection to allow writes."
         }
     }
 
@@ -159,7 +183,7 @@ public extension DatabaseError {
         switch self {
         case .notConnected:
             return true
-        case .invalidAddress, .query:
+        case .invalidAddress, .query, .readOnly:
             return false
         case .driver(let raw):
             let lower = raw.lowercased()

@@ -155,6 +155,53 @@ public extension SQLDialect {
         searchCountSQL(table, columns: [column], term: term)
     }
 
+    // MARK: - Explain
+
+    /// Wrap arbitrary SQL in a dialect-appropriate EXPLAIN statement.
+    func explainSQL(_ sql: String) -> String {
+        switch self {
+        case .postgres:
+            return "EXPLAIN (FORMAT TEXT) \(sql)"
+        case .mysql:
+            return "EXPLAIN \(sql)"
+        }
+    }
+
+    // MARK: - Foreign keys
+
+    /// SQL returning outgoing FKs: local column, referenced schema, table, column.
+    func foreignKeysSQL(_ table: TableRef) -> String {
+        switch self {
+        case .postgres:
+            return """
+            SELECT kcu.column_name, ccu.table_schema, ccu.table_name, ccu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = \(quoteLiteral(table.schema))
+              AND tc.table_name = \(quoteLiteral(table.name))
+            ORDER BY kcu.ordinal_position
+            """
+        case .mysql:
+            return """
+            SELECT kcu.column_name, kcu.referenced_table_schema, kcu.referenced_table_name, kcu.referenced_column_name
+            FROM information_schema.key_column_usage kcu
+            JOIN information_schema.table_constraints tc
+              ON kcu.constraint_name = tc.constraint_name
+             AND kcu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND kcu.table_schema = \(quoteLiteral(table.schema))
+              AND kcu.table_name = \(quoteLiteral(table.name))
+            ORDER BY kcu.ordinal_position
+            """
+        }
+    }
+
     // MARK: - Primary key introspection
 
     /// SQL returning a table's primary-key column names in key order. Used to

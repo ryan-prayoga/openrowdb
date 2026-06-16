@@ -2,8 +2,8 @@
 import Foundation
 
 /// A schema-qualified table reference surfaced by introspection.
-public struct TableRef: Identifiable, Hashable, Sendable {
-    public enum Kind: String, Sendable, Hashable {
+public struct TableRef: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: String, Sendable, Hashable, Codable {
         case table
         case view
     }

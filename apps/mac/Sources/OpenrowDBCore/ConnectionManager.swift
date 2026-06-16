@@ -26,6 +26,7 @@ public final class ConnectionManager {
     private let store: ConnectionStore
     private let secrets: SecretStore
     private let makeClient: ClientFactory
+    private let sshTunnels = SSHTunnelManager()
 
     /// Live clients keyed by (connection, database). A saved connection's
     /// primary client lives under its default database; Postgres opens an extra
@@ -63,6 +64,11 @@ public final class ConnectionManager {
         status[connection.id] = .disconnected
     }
 
+    /// Store an arbitrary secret (e.g. SSH password) in the Keychain.
+    public func storeSecret(_ value: String, for key: String) throws {
+        try secrets.set(value, for: key)
+    }
+
     /// Update metadata, and the password when a new one is supplied (nil = keep existing).
     public func update(_ connection: Connection, password: String?) throws {
         if let password {
@@ -79,6 +85,7 @@ public final class ConnectionManager {
     /// build's signature can't delete) must never block removing the connection.
     public func remove(_ connection: Connection) async throws {
         await disconnect(connection.id)
+        await sshTunnels.close(connectionID: connection.id)
         try? secrets.remove(connection.passwordKeychainKey)
         try store.remove(id: connection.id)
         connections = try store.load()
@@ -99,13 +106,20 @@ public final class ConnectionManager {
             return
         }
 
-        let client = makeClient(connection, password)
         do {
-            try await client.connect()
-            clients[ClientKey(connectionID: id, database: connection.database)] = client
-            status[id] = .connected
+            let (effective, dbPassword) = try await resolvedEndpoint(for: connection, password: password)
+            let client = makeClient(effective, dbPassword)
+            do {
+                try await client.connect()
+                clients[ClientKey(connectionID: id, database: connection.database)] = client
+                status[id] = .connected
+            } catch {
+                await client.close()
+                await sshTunnels.close(connectionID: id)
+                status[id] = .failed(Self.message(for: error))
+            }
         } catch {
-            await client.close()
+            await sshTunnels.close(connectionID: id)
             status[id] = .failed(Self.message(for: error))
         }
     }
@@ -113,13 +127,15 @@ public final class ConnectionManager {
     /// Try connecting with the given parameters without persisting anything.
     /// Returns `nil` on success, or a human-readable error message on failure.
     public func test(_ connection: Connection, password: String?) async -> String? {
-        let client = makeClient(connection, password)
         do {
+            let (effective, dbPassword) = try await resolvedEndpoint(for: connection, password: password)
+            let client = makeClient(effective, dbPassword)
             try await client.connect()
             await client.close()
+            await sshTunnels.close(connectionID: connection.id)
             return nil
         } catch {
-            await client.close()
+            await sshTunnels.close(connectionID: connection.id)
             return Self.message(for: error)
         }
     }
@@ -133,15 +149,31 @@ public final class ConnectionManager {
                 await client.close()
             }
         }
+        await sshTunnels.close(connectionID: id)
         if status[id] != nil {
             status[id] = .disconnected
         }
     }
 
+    /// Whether the saved connection is flagged read-only.
+    public func isReadOnly(_ id: UUID) -> Bool {
+        connections.first(where: { $0.id == id })?.isReadOnly ?? false
+    }
+
     /// Run SQL against an already-connected id, optionally targeting a specific
     /// database (nil = the connection's default database).
     public func run(_ sql: String, on id: UUID, database: String? = nil) async throws -> QueryResult {
-        try await perform(id, database: database) { try await $0.query(sql) }
+        try assertWritableSQL(sql, on: id)
+        return try await perform(id, database: database) { try await $0.query(sql) }
+    }
+
+    /// Run EXPLAIN on a single SQL statement.
+    public func explain(_ sql: String, on id: UUID, database: String? = nil) async throws -> QueryResult {
+        let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw DatabaseError.driver("Nothing to explain.") }
+        return try await perform(id, database: database) { client in
+            try await client.query(client.dialect.explainSQL(trimmed))
+        }
     }
 
     /// List databases (catalogs) on an already-connected id.
@@ -201,6 +233,11 @@ public final class ConnectionManager {
     /// A table's primary-key column names (empty if it has none).
     public func primaryKeyColumns(of table: TableRef, on id: UUID) async throws -> [String] {
         try await perform(id, database: table.database) { try await $0.primaryKeyColumns(of: table) }
+    }
+
+    /// Outgoing foreign-key constraints from a table.
+    public func foreignKeys(of table: TableRef, on id: UUID) async throws -> [ForeignKeyRef] {
+        try await perform(id, database: table.database) { try await $0.foreignKeys(of: table) }
     }
 
     /// Full column definitions (type, nullability, default, PK) for a schema dump.
@@ -266,6 +303,7 @@ public final class ConnectionManager {
 
     /// Insert one row. Columns/values must be equal length.
     public func insertRow(into table: TableRef, on id: UUID, columns: [String], values: [SQLValue]) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.insertRowSQL(table, columns: columns, values: values)) }
     }
 
@@ -277,12 +315,14 @@ public final class ConnectionManager {
         assignments: [(column: String, value: SQLValue)],
         predicates: [(column: String, value: SQLValue)]
     ) async throws {
+        try assertWritable(id)
         guard !predicates.isEmpty else { throw DatabaseError.driver("Refusing to UPDATE without a WHERE clause.") }
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.updateRowSQL(table, assignments: assignments, predicates: predicates)) }
     }
 
     /// Delete one row, identified by `predicates` (refuses an empty predicate set).
     public func deleteRow(_ table: TableRef, on id: UUID, predicates: [(column: String, value: SQLValue)]) async throws {
+        try assertWritable(id)
         guard !predicates.isEmpty else { throw DatabaseError.driver("Refusing to DELETE without a WHERE clause.") }
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.deleteRowSQL(table, predicates: predicates)) }
     }
@@ -290,26 +330,32 @@ public final class ConnectionManager {
     // MARK: - Table mutations (DDL)
 
     public func createTable(_ table: TableRef, on id: UUID, columns: [ColumnDefinition]) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.createTableSQL(table, columns: columns)) }
     }
 
     public func dropTable(_ table: TableRef, on id: UUID) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.dropTableSQL(table)) }
     }
 
     public func renameTable(_ table: TableRef, on id: UUID, to newName: String) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.renameTableSQL(table, to: newName)) }
     }
 
     public func addColumn(to table: TableRef, on id: UUID, column: ColumnDefinition) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.addColumnSQL(table, column: column)) }
     }
 
     public func dropColumn(_ column: String, from table: TableRef, on id: UUID) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.dropColumnSQL(table, column: column)) }
     }
 
     public func renameColumn(_ column: String, to newName: String, in table: TableRef, on id: UUID) async throws {
+        try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.renameColumnSQL(table, column: column, to: newName)) }
     }
 
@@ -344,7 +390,8 @@ public final class ConnectionManager {
         let password = try? secrets.get(connection.passwordKeychainKey)
         var dbConnection = connection
         dbConnection.database = target
-        let client = makeClient(dbConnection, password)
+        let (effective, dbPassword) = try await resolvedEndpoint(for: dbConnection, password: password)
+        let client = makeClient(effective, dbPassword)
         do {
             try await client.connect()
         } catch {
@@ -381,8 +428,66 @@ public final class ConnectionManager {
 
     // MARK: - Helpers
 
+    private func assertWritable(_ id: UUID) throws {
+        if isReadOnly(id) { throw DatabaseError.readOnly }
+    }
+
+    private func assertWritableSQL(_ sql: String, on id: UUID) throws {
+        if isReadOnly(id), SQLWriteDetector.containsWrite(sql) {
+            throw DatabaseError.readOnly
+        }
+    }
+
+    /// When SSH is enabled, open a local forward and return a copy of the
+    /// connection aimed at `127.0.0.1:localPort`.
+    private func resolvedEndpoint(
+        for connection: Connection,
+        password: String?
+    ) async throws -> (Connection, String?) {
+        guard connection.ssh.enabled else { return (connection, password) }
+
+        let sshPassword: String?
+        if let key = connection.ssh.passwordKeychainKey {
+            sshPassword = try secrets.get(key)
+        } else {
+            sshPassword = nil
+        }
+
+        let localPort: Int
+        do {
+            localPort = try await sshTunnels.open(
+                connectionID: connection.id,
+                config: connection.ssh,
+                targetHost: connection.host,
+                targetPort: connection.port,
+                password: sshPassword
+            )
+        } catch let tunnelError as SSHTunnelError {
+            switch tunnelError {
+            case .invalidConfiguration(let message):
+                throw DatabaseError.driver("SSH: \(message)")
+            case .launchFailed(let message):
+                throw DatabaseError.driver("SSH tunnel failed: \(message)")
+            case .noFreePort:
+                throw DatabaseError.driver("SSH tunnel failed: no free local port.")
+            }
+        }
+
+        var tunneled = connection
+        tunneled.host = "127.0.0.1"
+        tunneled.port = localPort
+        return (tunneled, password)
+    }
+
     private static func message(for error: Error) -> String {
         if let dbError = error as? DatabaseError { return dbError.userMessage }
+        if let tunnelError = error as? SSHTunnelError {
+            switch tunnelError {
+            case .invalidConfiguration(let message): return "SSH: \(message)"
+            case .launchFailed(let message): return "SSH tunnel failed: \(message)"
+            case .noFreePort: return "SSH tunnel failed: no free local port."
+            }
+        }
         return String(describing: error)
     }
 }

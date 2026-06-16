@@ -197,6 +197,8 @@ struct RowInspector: View {
     let selectedRowID: Int?
     /// Column name -> SQL type, when introspection is available.
     var columnTypes: [String: String] = [:]
+    var foreignKeys: [ForeignKeyRef] = []
+    var onFollowFK: ((ForeignKeyRef, String) -> Void)? = nil
 
     private var row: [String?]? {
         guard let selectedRowID, result.rows.indices.contains(selectedRowID) else { return nil }
@@ -223,6 +225,20 @@ struct RowInspector: View {
                             CellText(value: row.indices.contains(index) ? row[index] : nil)
                                 .font(.callout)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            if let value = row.indices.contains(index) ? row[index] : nil,
+                               let fk = foreignKeys.first(where: { $0.column == name }),
+                               let onFollowFK {
+                                Button {
+                                    onFollowFK(fk, value)
+                                } label: {
+                                    Label(
+                                        "Follow → \(fk.referencedTable.name).\(fk.referencedColumn)",
+                                        systemImage: "arrow.right.circle"
+                                    )
+                                    .font(.caption)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                         .padding(.vertical, 2)
                     }

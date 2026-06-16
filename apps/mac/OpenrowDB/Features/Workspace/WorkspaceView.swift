@@ -6,6 +6,7 @@ import SwiftUI
 /// strip (table / query / structure tabs), then the active tab's content.
 struct WorkspaceView: View {
     @Environment(ConnectionManager.self) private var manager
+    @Environment(QueryHistoryStore.self) private var history
     @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
 
@@ -32,6 +33,16 @@ struct WorkspaceView: View {
                 }
             }
             .background(shortcutCatchers)
+            .onChange(of: isConnected) { _, connected in
+                if connected {
+                    tabs.restoreIfNeeded(for: connectionID, manager: manager, history: history)
+                }
+            }
+            .onAppear {
+                if isConnected {
+                    tabs.restoreIfNeeded(for: connectionID, manager: manager, history: history)
+                }
+            }
         } else {
             PlaceholderView(
                 title: "Connection unavailable",
@@ -160,12 +171,18 @@ struct WorkspaceView: View {
 
             Spacer()
 
-            if isConnected {
+            if isConnected, !connection.isReadOnly {
                 DatabaseTransferMenu(
                     connectionID: connectionID,
                     dialect: connection.driver.dialect,
                     databaseName: connection.database
                 )
+            }
+
+            if connection.isReadOnly {
+                Label("Read-only", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
 
             statusBadge

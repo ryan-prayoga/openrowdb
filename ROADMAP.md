@@ -69,7 +69,7 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Database transfer — export schema+data, import `.sql`
 - [x] Sidebar DDL — new table, edit structure, export table SQL, drop table
 
-## Phase 4.6 — Pre-release maturity (in progress)
+## Phase 4.6 — Pre-release maturity ✅
 
 - [x] ⌘R refresh — sidebar tree, row counts, active table page, schema catalog
 - [x] Shortcuts help aligned with inline row editing (removed dead sheet references)
@@ -80,11 +80,11 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Column filter — per-column substring filter in table viewer
 - [x] Line numbers — gutter ruler in SQL editor
 - [x] Rows affected — MySQL driver reports via `onMetadata` (Postgres pending NIO API)
-- [ ] SSH tunneling
-- [ ] Explain plan viewer
-- [ ] Foreign key navigation
-- [ ] Read-only connection mode
-- [ ] Tab persistence across restart
+- [x] SSH tunneling — `SSHTunnelManager` via `/usr/bin/ssh`, connection sheet section
+- [x] Explain plan viewer — `ExplainPlanView` + toolbar button in query editor
+- [x] Foreign key navigation — `ForeignKeyRef` introspection + Follow FK in row inspector
+- [x] Read-only connection mode — `SQLWriteDetector` guards + UI badges / disabled DDL
+- [x] Tab persistence across restart — `WorkspaceSessionStore` (`workspace.json`)
 - [ ] …see pre-release plan for full Tier A/B backlog
 
 ## Phase 5 — Ship v0.1.0 (Day 14)
@@ -100,14 +100,12 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [ ] Launch tweet + Show HN
 
 ## Post v1 — backlog
-
-- [ ] SSH tunneling
 - [ ] SQLite driver
 - [ ] MongoDB driver
 - [ ] Redis driver
 - [ ] Schema diff tool
 - [ ] ER diagram generator (auto from foreign keys)
-- [ ] Saved query snippets
+
 - [ ] Multi-window support
 - [ ] Windows port (full — see **Cross-platform architecture** below)
 - [ ] Linux port (full — see **Cross-platform architecture** below)

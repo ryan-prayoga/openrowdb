@@ -41,12 +41,11 @@ public final class PostgresDriver: DatabaseClient {
             $0.runTask = runTask
         }
 
-        // Round-trip to surface auth/host errors at connect time, not first query.
         do {
             _ = try await client.query("SELECT 1")
         } catch {
             await close()
-            throw DatabaseError.driver(String(describing: error))
+            throw Self.translate(error)
         }
     }
 
@@ -59,7 +58,7 @@ public final class PostgresDriver: DatabaseClient {
         do {
             rows = try await client.query(PostgresQuery(unsafeSQL: sql))
         } catch {
-            throw DatabaseError.driver(String(describing: error))
+            throw Self.translate(error)
         }
 
         var columns: [String] = []
@@ -107,6 +106,33 @@ public final class PostgresDriver: DatabaseClient {
         var config = TLSConfiguration.makeClientConfiguration()
         config.certificateVerification = .none
         return config
+    }
+
+    /// Convert a PostgresNIO error into a `DatabaseError` that carries the real
+    /// server message and SQLSTATE.
+    ///
+    /// PostgresNIO's `PSQLError` deliberately overrides `description` to return
+    /// a generic placeholder ("Generic description to prevent accidental leakage
+    /// of sensitive data") so apps don't accidentally log secrets. We're a GUI
+    /// client where the user *is* the secret-owner, so we read the structured
+    /// `serverInfo` fields directly and fall back to `String(reflecting:)`
+    /// (CustomDebugStringConvertible) only when there's no server response —
+    /// e.g. connection-lost or local config errors.
+    static func translate(_ error: any Error) -> DatabaseError {
+        guard let psql = error as? PSQLError else {
+            return .driver(String(reflecting: error))
+        }
+        if let info = psql.serverInfo, let message = info[.message] {
+            return .query(code: info[.sqlState], message: message, hint: info[.hint])
+        }
+        switch psql.code {
+        case .clientClosedConnection, .serverClosedConnection, .uncleanShutdown:
+            return .driver("connection closed")
+        case .queryCancelled:
+            return .driver("query cancelled")
+        default:
+            return .driver(String(reflecting: error))
+        }
     }
 
     /// Render a cell to a display string.

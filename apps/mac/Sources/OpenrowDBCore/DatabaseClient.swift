@@ -61,6 +61,11 @@ public enum DatabaseError: Error, Sendable, Equatable {
     case notConnected
     /// Driver-level failure, with the underlying message preserved.
     case driver(String)
+    /// A SQL query failed on the server with a structured error response. The
+    /// `code` is dialect-specific (Postgres SQLSTATE like "42P01", or a MySQL
+    /// numeric errno as a string); `message` is the primary server message,
+    /// `hint` is an optional Postgres-only suggestion.
+    case query(code: String?, message: String, hint: String?)
 }
 
 public extension DatabaseError {
@@ -74,6 +79,11 @@ public extension DatabaseError {
             return "Not connected."
         case .driver(let raw):
             return Self.humanize(raw)
+        case .query(let code, let message, let hint):
+            var line = message
+            if let code, !code.isEmpty { line += " (\(code))" }
+            if let hint, !hint.isEmpty { line += "\nHint: \(hint)" }
+            return line
         }
     }
 
@@ -106,7 +116,7 @@ public extension DatabaseError {
         switch self {
         case .notConnected:
             return true
-        case .invalidAddress:
+        case .invalidAddress, .query:
             return false
         case .driver(let raw):
             let lower = raw.lowercased()

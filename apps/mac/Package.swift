@@ -18,7 +18,10 @@ let package = Package(
         .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.7.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
-        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.27.0")
+        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.27.0"),
+        // Phase 3: query history (local SQLite). GRDB picked over SQLite3 system lib for
+        // its async API, type-safe row decoding, and battle-tested concurrency model.
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0")
     ],
     targets: [
         .target(
@@ -29,7 +32,8 @@ let package = Package(
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
-                .product(name: "NIOSSL", package: "swift-nio-ssl")
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ],
             path: "Sources/OpenrowDBCore"
         ),

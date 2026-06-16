@@ -65,3 +65,9 @@ iOSInjectionProject/
 
 # Logs
 *.log
+
+# Agent / AI assistant artifacts
+.omo/
+.opencode
+.aider*
+.cursor/

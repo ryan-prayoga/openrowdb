@@ -40,12 +40,18 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 
 ## Phase 3 — Query (Day 8–10)
 
-- [ ] SQL editor (start with `TextEditor`, upgrade to syntax-aware later)
-- [ ] Run query (Cmd+Return)
-- [ ] Multi-statement support
-- [ ] Query history (local SQLite)
-- [ ] Result tabs (multiple queries in tabs)
-- [ ] Export results: CSV, JSON
+- [x] SQL editor (native `NSTextView` via `CodeEditor` wrapper — system colors, undo, find bar, ⌘Return / ⌘. shortcuts, status line)
+- [x] Run query (⌘Return runs, ⌘. cancels in-flight)
+- [x] Multi-statement support (string/identifier/comment-aware `;` splitter, per-statement outcomes)
+- [x] Query history (local SQLite via GRDB, `QueryHistoryStore`, sidebar inspector with reload-into-editor)
+- [x] Result tabs (per-connection Workspace tabs: Browse + N Query scratchpads; ⌘T new, ⌘W close)
+- [x] Export results: CSV (RFC 4180) + JSON; copy + save-to-disk via `NSSavePanel`
+
+## Phase 3.5 — Smoke-test fixes & quality of life
+
+- [x] Surface real Postgres/MySQL server errors (SQLSTATE/errno + message + hint) instead of NIO's redacted "Generic description"
+- [x] SQL autocomplete (Tab key): dialect-aware keywords (~150 each) + live schema (tables, columns after `table.`) — pure provider with 12 unit tests
+- [x] Open table as workspace tab (double-click in Browse, or right-click → Open in New Tab; dedups + per-tab page/sort state)
 
 ## Phase 4 — Polish (Day 11–13)
 

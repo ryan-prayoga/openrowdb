@@ -22,12 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct OpenrowDBApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var manager = OpenrowDBApp.makeManager()
+    @State private var history = OpenrowDBApp.makeHistory()
+    @State private var tabs = WorkspaceTabsState()
     @State private var showingNewConnection = false
 
     var body: some Scene {
         WindowGroup {
             ContentView(showingNewConnection: $showingNewConnection)
                 .environment(manager)
+                .environment(history)
+                .environment(tabs)
                 .task {
                     try? manager.reload()
                 }
@@ -62,5 +66,18 @@ struct OpenrowDBApp: App {
             store = try! ConnectionStore(fileURL: fallback)
         }
         return ConnectionManager(store: store, secrets: KeychainSecretStore())
+    }
+
+    /// Build the app's `QueryHistoryStore`. Falls back to a temp file so the app
+    /// never fails to launch even if Application Support is unavailable.
+    @MainActor
+    private static func makeHistory() -> QueryHistoryStore {
+        do {
+            return try QueryHistoryStore()
+        } catch {
+            let fallback = FileManager.default.temporaryDirectory
+                .appendingPathComponent("OpenrowDB/history.sqlite")
+            return try! QueryHistoryStore(fileURL: fallback)
+        }
     }
 }

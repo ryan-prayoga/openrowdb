@@ -52,7 +52,7 @@ public final class MySQLDriver: DatabaseClient {
             }
         } catch {
             try? await group.shutdownGracefully()
-            throw DatabaseError.driver(String(describing: error))
+            throw Self.translate(error)
         }
     }
 
@@ -65,7 +65,7 @@ public final class MySQLDriver: DatabaseClient {
         do {
             rows = try await conn.simpleQuery(sql).get()
         } catch {
-            throw DatabaseError.driver(String(describing: error))
+            throw Self.translate(error)
         }
 
         guard let first = rows.first else {
@@ -101,6 +101,27 @@ public final class MySQLDriver: DatabaseClient {
             var config = TLSConfiguration.makeClientConfiguration()
             config.certificateVerification = .none
             return config
+        }
+    }
+
+    /// Convert a MySQLNIO error into a `DatabaseError` carrying the structured
+    /// server response (errno + SQLSTATE + message) instead of MySQLNIO's
+    /// `CustomStringConvertible` wrapper, which prefixes "MySQL error:" and
+    /// hides the fields the UI wants to format.
+    static func translate(_ error: any Error) -> DatabaseError {
+        guard let my = error as? MySQLError else {
+            return .driver(String(reflecting: error))
+        }
+        switch my {
+        case .server(let packet):
+            let code = packet.sqlState ?? String(packet.errorCode.rawValue)
+            return .query(code: code, message: packet.errorMessage, hint: nil)
+        case .duplicateEntry(let message), .invalidSyntax(let message):
+            return .query(code: nil, message: message, hint: nil)
+        case .closed:
+            return .driver("connection closed")
+        default:
+            return .driver(my.message)
         }
     }
 

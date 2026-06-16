@@ -6,6 +6,7 @@ import SwiftUI
 /// schema, with row counts) on the left, a sortable paged results grid on the right.
 struct BrowseView: View {
     @Environment(ConnectionManager.self) private var manager
+    @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
 
     private static let pageSizeOptions = [50, 100, 200, 500]
@@ -131,6 +132,23 @@ struct BrowseView: View {
                                 .badge(badgeText(for: table))
                                 .help(helpText(for: table))
                                 .tag(table.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) {
+                                    tabs.openTableTab(table, for: connectionID)
+                                }
+                                .contextMenu {
+                                    Button("Open in New Tab") {
+                                        tabs.openTableTab(table, for: connectionID)
+                                    }
+                                    Button("Copy Name") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(table.name, forType: .string)
+                                    }
+                                    Button("Copy Qualified Name") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString("\(table.schema).\(table.name)", forType: .string)
+                                    }
+                                }
                         }
                     }
                 }
@@ -326,7 +344,7 @@ struct BrowseView: View {
 // MARK: - Pagination
 
 /// A 1-based page number field that jumps on commit, clamped to [1, totalPages].
-private struct PageJumpField: View {
+struct PageJumpField: View {
     @Binding var page: Int
     let totalPages: Int
 

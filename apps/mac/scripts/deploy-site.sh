@@ -29,9 +29,10 @@ info "Preparing remote directory…"
 ssh "$REMOTE" "sudo mkdir -p '${WEB_ROOT}/releases' && sudo chown -R ubuntu:ubuntu '${WEB_ROOT}'"
 
 info "Syncing site + install.sh…"
-rsync -az --delete "$SITE_DIR/" "$REMOTE:${WEB_ROOT}/"
+# Keep /releases mirror uploads across site redeploys (--delete would wipe them).
+rsync -az --delete --exclude 'releases/' "$SITE_DIR/" "$REMOTE:${WEB_ROOT}/"
 rsync -az "$SCRIPT_DIR/install.sh" "$REMOTE:${WEB_ROOT}/install.sh"
-ssh "$REMOTE" "chmod 755 '${WEB_ROOT}/install.sh'"
+ssh "$REMOTE" "mkdir -p '${WEB_ROOT}/releases' && chmod 755 '${WEB_ROOT}/install.sh'"
 
 if [[ -n "$WITH_RELEASE" ]]; then
   ZIP="$MAC_DIR/dist/OpenrowDB-${WITH_RELEASE}.zip"

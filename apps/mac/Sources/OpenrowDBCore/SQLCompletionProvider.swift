@@ -4,6 +4,7 @@ import Foundation
 public struct CompletionSuggestion: Sendable, Equatable, Hashable {
     public enum Kind: Sendable, Equatable, Hashable {
         case keyword
+        case function
         case table
         case column
         case schema
@@ -52,11 +53,13 @@ public enum SQLCompletionProvider {
 
         let previousKeyword = priorKeyword(in: request.text, before: replaceStart)
         if let kw = previousKeyword, ["FROM", "JOIN", "INTO", "UPDATE", "TABLE"].contains(kw) {
+            // Object-position: tables first, no functions (table-valued funcs are rare).
             return tableSuggestions(prefix: prefix, schema: schema)
                 + keywordSuggestions(prefix: prefix, dialect: request.dialect)
         }
 
         return keywordSuggestions(prefix: prefix, dialect: request.dialect)
+            + functionSuggestions(prefix: prefix, dialect: request.dialect)
             + tableSuggestions(prefix: prefix, schema: schema)
     }
 
@@ -167,6 +170,12 @@ public enum SQLCompletionProvider {
         let upper = prefix.uppercased()
         let matching = dialect.keywords.filter { upper.isEmpty || $0.hasPrefix(upper) }
         return matching.map { CompletionSuggestion(text: $0, kind: .keyword, detail: nil) }
+    }
+
+    private static func functionSuggestions(prefix: String, dialect: SQLDialect) -> [CompletionSuggestion] {
+        let upper = prefix.uppercased()
+        let matching = dialect.functions.filter { upper.isEmpty || $0.hasPrefix(upper) }
+        return matching.map { CompletionSuggestion(text: $0, kind: .function, detail: "function") }
     }
 
     private static func tableSuggestions(prefix: String, schema: SchemaSnapshot) -> [CompletionSuggestion] {

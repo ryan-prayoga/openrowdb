@@ -123,7 +123,8 @@ public final class PostgresDriver: DatabaseClient {
             return .driver(String(reflecting: error))
         }
         if let info = psql.serverInfo, let message = info[.message] {
-            return .query(code: info[.sqlState], message: message, hint: info[.hint])
+            let position = info[.position].flatMap(Int.init)
+            return .query(code: info[.sqlState], message: message, hint: info[.hint], position: position)
         }
         switch psql.code {
         case .clientClosedConnection, .serverClosedConnection, .uncleanShutdown:

@@ -64,8 +64,29 @@ final class SQLDialectTests: XCTestCase {
     }
 
     func testListTablesIncludesViews() {
-        XCTAssertTrue(SQLDialect.postgres.listTablesSQL.contains("'VIEW'"))
-        XCTAssertTrue(SQLDialect.postgres.listTablesSQL.contains("table_type"))
+        XCTAssertTrue(SQLDialect.postgres.listTablesSQL().contains("'VIEW'"))
+        XCTAssertTrue(SQLDialect.postgres.listTablesSQL().contains("table_type"))
+    }
+
+    func testListTablesMySQLFiltersByGivenDatabase() {
+        let sql = SQLDialect.mysql.listTablesSQL(database: "shop")
+        XCTAssertTrue(sql.contains("table_schema = 'shop'"))
+        XCTAssertFalse(sql.contains("DATABASE()"))
+    }
+
+    func testListTablesMySQLDefaultsToSessionDatabase() {
+        XCTAssertTrue(SQLDialect.mysql.listTablesSQL().contains("DATABASE()"))
+    }
+
+    func testListDatabasesExcludesSystemCatalogs() {
+        XCTAssertTrue(SQLDialect.postgres.listDatabasesSQL.contains("pg_database"))
+        XCTAssertTrue(SQLDialect.mysql.listDatabasesSQL.contains("information_schema.schemata"))
+        XCTAssertTrue(SQLDialect.mysql.listDatabasesSQL.contains("performance_schema"))
+    }
+
+    func testTableRefIDIncludesDatabaseWhenPresent() {
+        XCTAssertEqual(TableRef(schema: "public", name: "users").id, "public.users")
+        XCTAssertEqual(TableRef(database: "shop", schema: "public", name: "users").id, "shop.public.users")
     }
 
     func testListColumnsSQLUsesLiterals() {

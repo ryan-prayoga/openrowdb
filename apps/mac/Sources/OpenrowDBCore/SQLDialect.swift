@@ -8,13 +8,23 @@ public struct TableRef: Identifiable, Hashable, Sendable {
         case view
     }
 
+    /// The database (catalog) this table lives in. For MySQL a database *is* a
+    /// schema, so this equals `schema`. For Postgres it's the catalog the
+    /// owning client is bound to (a separate connection per database). Empty
+    /// means "the connection's default database" — the manager resolves it.
+    public let database: String
     public let schema: String
     public let name: String
     public let kind: Kind
 
-    public var id: String { "\(schema).\(name)" }
+    /// Stable identity. Includes `database` when present so two databases that
+    /// each have `public.users` don't collide as tabs / cache keys.
+    public var id: String {
+        database.isEmpty ? "\(schema).\(name)" : "\(database).\(schema).\(name)"
+    }
 
-    public init(schema: String, name: String, kind: Kind = .table) {
+    public init(database: String = "", schema: String, name: String, kind: Kind = .table) {
+        self.database = database
         self.schema = schema
         self.name = name
         self.kind = kind
@@ -83,9 +93,79 @@ public enum SQLDialect: Sendable {
         "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
     }
 
+    /// Quote a possibly schema-qualified identifier by splitting on `.` and
+    /// quoting each segment independently. `public.Seat` -> `"public"."Seat"`
+    /// (Postgres) or `` `public`.`Seat` `` (MySQL). Already-quoted segments are
+    /// preserved unchanged so users who type `"My Schema".tbl` aren't mangled.
+    public func quoteQualified(_ identifier: String) -> String {
+        guard !identifier.isEmpty else { return identifier }
+        let segments = splitOnDotsRespectingQuotes(identifier)
+        return segments.map { segment in
+            isAlreadyQuoted(segment) ? segment : quote(segment)
+        }.joined(separator: ".")
+    }
+
+    private func isAlreadyQuoted(_ segment: String) -> Bool {
+        guard segment.count >= 2 else { return false }
+        let first = segment.first!
+        let last = segment.last!
+        switch self {
+        case .postgres: return first == "\"" && last == "\""
+        case .mysql: return first == "`" && last == "`"
+        }
+    }
+
+    private func splitOnDotsRespectingQuotes(_ s: String) -> [String] {
+        let openCloseChar: Character
+        switch self {
+        case .postgres: openCloseChar = "\""
+        case .mysql: openCloseChar = "`"
+        }
+        var segments: [String] = []
+        var current = ""
+        var inQuote = false
+        for ch in s {
+            if ch == openCloseChar {
+                inQuote.toggle()
+                current.append(ch)
+            } else if ch == "." && !inQuote {
+                segments.append(current)
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        segments.append(current)
+        return segments
+    }
+
+    /// SQL listing the databases (catalogs) on the server, excluding system
+    /// ones. Postgres reads `pg_database`; MySQL reads `information_schema`.
+    public var listDatabasesSQL: String {
+        switch self {
+        case .postgres:
+            return """
+            SELECT datname FROM pg_database
+            WHERE datistemplate = false AND datallowconn = true
+            ORDER BY datname
+            """
+        case .mysql:
+            return """
+            SELECT schema_name FROM information_schema.schemata
+            WHERE schema_name NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
+            ORDER BY schema_name
+            """
+        }
+    }
+
     /// SQL listing user tables and views (excludes system schemas). Selects
     /// schema, name, and table_type so callers can distinguish tables from views.
-    public var listTablesSQL: String {
+    ///
+    /// For Postgres a client is bound to one database, so `database` is ignored
+    /// (the query already lists every visible schema in the current catalog).
+    /// For MySQL one connection sees every database, so `database` selects which
+    /// one to list — defaulting to the session's `DATABASE()` when nil.
+    public func listTablesSQL(database: String? = nil) -> String {
         switch self {
         case .postgres:
             return """
@@ -96,11 +176,14 @@ public enum SQLDialect: Sendable {
             ORDER BY table_schema, table_name
             """
         case .mysql:
+            let predicate = (database?.isEmpty == false)
+                ? "table_schema = \(quoteLiteral(database!))"
+                : "table_schema = DATABASE()"
             return """
             SELECT table_schema, table_name, table_type
             FROM information_schema.tables
             WHERE table_type IN ('BASE TABLE', 'VIEW')
-              AND table_schema = DATABASE()
+              AND \(predicate)
             ORDER BY table_name
             """
         }

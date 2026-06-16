@@ -19,13 +19,23 @@ public protocol DatabaseClient: Sendable {
 }
 
 public extension DatabaseClient {
-    /// List user tables and views via `information_schema`.
-    func listTables() async throws -> [TableRef] {
-        let result = try await query(dialect.listTablesSQL)
+    /// List databases (catalogs) visible on the server.
+    func listDatabases() async throws -> [String] {
+        let result = try await query(dialect.listDatabasesSQL)
+        return result.rows.compactMap { $0.first ?? nil }
+    }
+
+    /// List user tables and views via `information_schema`, stamping each with
+    /// its owning database so cross-database refs stay distinct. For Postgres
+    /// `database` is the catalog this client is bound to; for MySQL each table's
+    /// schema *is* its database, so the row's schema wins.
+    func listTables(in database: String? = nil) async throws -> [TableRef] {
+        let result = try await query(dialect.listTablesSQL(database: database))
         return result.rows.compactMap { row in
             guard row.count >= 2, let schema = row[0], let name = row[1] else { return nil }
             let kind: TableRef.Kind = (row.count >= 3 && row[2]?.uppercased() == "VIEW") ? .view : .table
-            return TableRef(schema: schema, name: name, kind: kind)
+            let db = (dialect == .mysql) ? schema : (database ?? "")
+            return TableRef(database: db, schema: schema, name: name, kind: kind)
         }
     }
 
@@ -51,6 +61,37 @@ public extension DatabaseClient {
     func fetchRows(_ table: TableRef, limit: Int, offset: Int, sort: SortSpec? = nil) async throws -> QueryResult {
         try await query(dialect.selectRowsSQL(table, limit: limit, offset: offset, sort: sort))
     }
+
+    /// A table's primary-key column names, in key order. Empty when the table
+    /// has no primary key (callers then fall back to a full-row WHERE clause).
+    func primaryKeyColumns(of table: TableRef) async throws -> [String] {
+        let result = try await query(dialect.primaryKeyColumnsSQL(table))
+        return result.rows.compactMap { $0.first ?? nil }
+    }
+
+    /// Full column definitions (type, nullability, default, primary-key flag) for
+    /// generating a `CREATE TABLE` in a SQL dump. Sequence/identity-backed
+    /// defaults (`nextval(...)`) are dropped because a logical dump doesn't
+    /// recreate the sequence, so keeping them would break `CREATE` on import.
+    func columnDefinitions(of table: TableRef) async throws -> [ColumnDefinition] {
+        let primaryKeys = Set(try await primaryKeyColumns(of: table))
+        let result = try await query(dialect.fullColumnsSQL(table))
+        return result.rows.compactMap { row in
+            guard row.count >= 4, let name = row[0], let type = row[1] else { return nil }
+            let isNullable = (row[2] ?? "YES").uppercased() != "NO"
+            var defaultValue = row[3]
+            if let value = defaultValue, value.lowercased().contains("nextval(") {
+                defaultValue = nil
+            }
+            return ColumnDefinition(
+                name: name,
+                type: type,
+                isNullable: isNullable,
+                isPrimaryKey: primaryKeys.contains(name),
+                defaultValue: defaultValue
+            )
+        }
+    }
 }
 
 /// Errors surfaced by the Core database layer.
@@ -64,8 +105,10 @@ public enum DatabaseError: Error, Sendable, Equatable {
     /// A SQL query failed on the server with a structured error response. The
     /// `code` is dialect-specific (Postgres SQLSTATE like "42P01", or a MySQL
     /// numeric errno as a string); `message` is the primary server message,
-    /// `hint` is an optional Postgres-only suggestion.
-    case query(code: String?, message: String, hint: String?)
+    /// `hint` is an optional Postgres-only suggestion; `position` is the
+    /// 1-indexed character offset in the submitted SQL where the server
+    /// pinpointed the error (Postgres only — MySQL doesn't return one).
+    case query(code: String?, message: String, hint: String?, position: Int?)
 }
 
 public extension DatabaseError {
@@ -79,7 +122,7 @@ public extension DatabaseError {
             return "Not connected."
         case .driver(let raw):
             return Self.humanize(raw)
-        case .query(let code, let message, let hint):
+        case .query(let code, let message, let hint, _):
             var line = message
             if let code, !code.isEmpty { line += " (\(code))" }
             if let hint, !hint.isEmpty { line += "\nHint: \(hint)" }

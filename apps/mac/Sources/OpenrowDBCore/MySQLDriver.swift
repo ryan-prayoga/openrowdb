@@ -115,9 +115,9 @@ public final class MySQLDriver: DatabaseClient {
         switch my {
         case .server(let packet):
             let code = packet.sqlState ?? String(packet.errorCode.rawValue)
-            return .query(code: code, message: packet.errorMessage, hint: nil)
+            return .query(code: code, message: packet.errorMessage, hint: nil, position: nil)
         case .duplicateEntry(let message), .invalidSyntax(let message):
-            return .query(code: nil, message: message, hint: nil)
+            return .query(code: nil, message: message, hint: nil, position: nil)
         case .closed:
             return .driver("connection closed")
         default:

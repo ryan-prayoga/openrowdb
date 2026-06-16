@@ -101,4 +101,45 @@ final class SQLCompletionProviderTests: XCTestCase {
         let tableNames = results.filter { $0.kind == .table }.map(\.text)
         XCTAssertTrue(tableNames.contains("users"))
     }
+
+    func testFunctionSuggestionInSelectList() {
+        let results = suggestions("SELECT COU")
+        let functions = results.filter { $0.kind == .function }.map(\.text)
+        XCTAssertTrue(functions.contains("COUNT"))
+    }
+
+    func testFunctionNotSuggestedAfterFrom() {
+        let results = suggestions("SELECT * FROM COU")
+        let functions = results.filter { $0.kind == .function }.map(\.text)
+        XCTAssertTrue(functions.isEmpty, "Functions should not appear in object position after FROM")
+    }
+
+    func testFunctionAndKeywordCoexistInSelect() {
+        let results = suggestions("SELECT S")
+        let kinds = Set(results.map(\.kind))
+        XCTAssertTrue(kinds.contains(.keyword))
+        XCTAssertTrue(kinds.contains(.function))
+        let functions = results.filter { $0.kind == .function }.map(\.text)
+        XCTAssertTrue(functions.contains("SUM"))
+        let keywords = results.filter { $0.kind == .keyword }.map(\.text)
+        XCTAssertTrue(keywords.contains("SELECT"))
+    }
+
+    func testPostgresSpecificFunction() {
+        let results = suggestions("SELECT ARRAY_A", dialect: .postgres)
+        let functions = results.filter { $0.kind == .function }.map(\.text)
+        XCTAssertTrue(functions.contains("ARRAY_AGG"))
+    }
+
+    func testMysqlSpecificFunction() {
+        let results = suggestions("SELECT GROUP_C", dialect: .mysql)
+        let functions = results.filter { $0.kind == .function }.map(\.text)
+        XCTAssertTrue(functions.contains("GROUP_CONCAT"))
+    }
+
+    func testCountIsNoLongerInKeywords() {
+        let results = suggestions("SELECT COU")
+        let keywords = results.filter { $0.kind == .keyword }.map(\.text)
+        XCTAssertFalse(keywords.contains("COUNT"), "COUNT moved from keywords to functions")
+    }
 }

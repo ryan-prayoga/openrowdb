@@ -70,14 +70,15 @@ final class DatabaseClientTests: XCTestCase {
         XCTAssertTrue(DatabaseError.driver("server closed the connection").isConnectionLost)
         XCTAssertFalse(DatabaseError.driver("syntax error at or near \"slect\"").isConnectionLost)
         XCTAssertFalse(DatabaseError.invalidAddress("x").isConnectionLost)
-        XCTAssertFalse(DatabaseError.query(code: "42P01", message: "relation does not exist", hint: nil).isConnectionLost)
+        XCTAssertFalse(DatabaseError.query(code: "42P01", message: "relation does not exist", hint: nil, position: nil).isConnectionLost)
     }
 
     func testQueryErrorUserMessageWithCodeAndHint() {
         let err = DatabaseError.query(
             code: "42P01",
             message: "relation \"usrs\" does not exist",
-            hint: "Perhaps you meant \"users\"."
+            hint: "Perhaps you meant \"users\".",
+            position: nil
         )
         let msg = err.userMessage
         XCTAssertTrue(msg.contains("relation \"usrs\" does not exist"))
@@ -86,15 +87,29 @@ final class DatabaseClientTests: XCTestCase {
     }
 
     func testQueryErrorUserMessageWithoutCode() {
-        let err = DatabaseError.query(code: nil, message: "Table 'db.foo' doesn't exist", hint: nil)
+        let err = DatabaseError.query(code: nil, message: "Table 'db.foo' doesn't exist", hint: nil, position: nil)
         XCTAssertEqual(err.userMessage, "Table 'db.foo' doesn't exist")
     }
 
     func testQueryErrorEquatable() {
-        let a = DatabaseError.query(code: "42P01", message: "x", hint: nil)
-        let b = DatabaseError.query(code: "42P01", message: "x", hint: nil)
-        let c = DatabaseError.query(code: "42P02", message: "x", hint: nil)
+        let a = DatabaseError.query(code: "42P01", message: "x", hint: nil, position: nil)
+        let b = DatabaseError.query(code: "42P01", message: "x", hint: nil, position: nil)
+        let c = DatabaseError.query(code: "42P02", message: "x", hint: nil, position: nil)
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c)
+    }
+
+    func testQueryErrorCarriesPosition() {
+        let err = DatabaseError.query(
+            code: "42601",
+            message: "syntax error at or near \"s\"",
+            hint: nil,
+            position: 8
+        )
+        if case let .query(_, _, _, position) = err {
+            XCTAssertEqual(position, 8)
+        } else {
+            XCTFail("Expected .query case")
+        }
     }
 }

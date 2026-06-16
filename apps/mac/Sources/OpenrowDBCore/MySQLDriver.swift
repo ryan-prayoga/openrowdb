@@ -61,21 +61,36 @@ public final class MySQLDriver: DatabaseClient {
             throw DatabaseError.notConnected
         }
 
-        let rows: [MySQLRow]
+        let box = Mutex<(rows: [MySQLRow], metadata: MySQLQueryMetadata?)>((rows: [], metadata: nil))
         do {
-            rows = try await conn.simpleQuery(sql).get()
+            try await conn.query(
+                sql,
+                onRow: { row in
+                    box.withLock { $0.rows.append(row) }
+                },
+                onMetadata: { metadata in
+                    box.withLock { $0.metadata = metadata }
+                }
+            ).get()
         } catch {
             throw Self.translate(error)
         }
 
-        guard let first = rows.first else {
-            return .empty
+        var capturedRows: [MySQLRow] = []
+        var rowsAffected: Int?
+        box.withLock {
+            capturedRows = $0.rows
+            rowsAffected = $0.metadata.map { Int($0.affectedRows) }
+        }
+
+        guard let first = capturedRows.first else {
+            return QueryResult(columns: [], rows: [], rowsAffected: rowsAffected)
         }
         let columns = first.columnDefinitions.map(\.name)
-        let rendered = rows.map { row in
+        let rendered = capturedRows.map { row in
             columns.map { name in row.column(name).flatMap(Self.render) }
         }
-        return QueryResult(columns: columns, rows: rendered)
+        return QueryResult(columns: columns, rows: rendered, rowsAffected: rowsAffected)
     }
 
     public func close() async {

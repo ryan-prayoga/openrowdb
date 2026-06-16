@@ -17,6 +17,7 @@ struct QueryEditorView: View {
     var leadingInset: CGFloat = 0
 
     @State private var showHistory = false
+    @State private var showSnippets = false
     @State private var jumpRequest: Int = 0
     @FocusState private var editorFocused: Bool
 
@@ -76,6 +77,17 @@ struct QueryEditorView: View {
             if showHistory {
                 Divider()
                 QueryHistoryView(connectionID: connectionID) { sql in
+                    runner.sql = sql
+                    editorFocused = true
+                }
+                .frame(width: 280)
+                .frame(maxHeight: .infinity)
+            } else if showSnippets {
+                Divider()
+                QuerySnippetsView(
+                    connectionID: connectionID,
+                    currentSQL: { runner.sql }
+                ) { sql in
                     runner.sql = sql
                     editorFocused = true
                 }
@@ -178,15 +190,36 @@ struct QueryEditorView: View {
                 .transition(.opacity)
             }
 
+            Button {
+                runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
+            } label: {
+                Label("Format", systemImage: "text.alignleft")
+            }
+            .buttonStyle(.glass)
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .help("Format SQL (⌘⇧F)")
+
             Spacer()
 
             ExportButton(outcomes: runner.outcomes)
+
+            Toggle(isOn: $showSnippets) {
+                Label("Snippets", systemImage: "bookmark")
+            }
+            .toggleStyle(.button)
+            .help("Saved query snippets")
+            .onChange(of: showSnippets) { _, on in
+                if on { showHistory = false }
+            }
 
             Toggle(isOn: $showHistory) {
                 Label("History", systemImage: "clock.arrow.circlepath")
             }
             .toggleStyle(.button)
             .help("Show query history")
+            .onChange(of: showHistory) { _, on in
+                if on { showSnippets = false }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

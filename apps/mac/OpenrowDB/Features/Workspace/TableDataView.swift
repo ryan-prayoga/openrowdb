@@ -38,6 +38,12 @@ struct TableDataView: View {
     @State private var appliedSearch = ""
     @State private var searchTask: Task<Void, Never>?
 
+    @State private var filterColumn = ""
+    @State private var filterValue = ""
+    @State private var appliedFilterColumn = ""
+    @State private var appliedFilterValue = ""
+    @State private var filterTask: Task<Void, Never>?
+
     // Per-loader generation tokens: each load increments its own counter and
     // only commits if still current, so an out-of-order completion from an
     // earlier (slower) load can't overwrite a newer one's result/count.
@@ -60,46 +66,49 @@ struct TableDataView: View {
     /// trip (floats, timestamps, json) — so those actions are disabled instead.
     private var canEditRows: Bool { canMutate && !primaryKeys.isEmpty }
     private var isSearching: Bool { !appliedSearch.isEmpty && !columns.isEmpty }
+    private var isColumnFiltering: Bool {
+        !appliedFilterColumn.isEmpty && !appliedFilterValue.isEmpty && !columns.isEmpty
+    }
+    private var isFiltered: Bool { isSearching || isColumnFiltering }
+
+    private var dialect: SQLDialect {
+        manager.connections.first(where: { $0.id == connectionID })?.driver.dialect ?? .postgres
+    }
+
+    private var mutationErrorPresented: Binding<Bool> {
+        Binding(get: { mutationError != nil }, set: { if !$0 { mutationError = nil } })
+    }
 
     private var currentSort: SortSpec? {
         sortOrder.first.map { SortSpec(column: $0.columnName, ascending: $0.order == .forward) }
     }
 
     var body: some View {
-        content
+        observedContent
+    }
+
+    private var observedContent: some View {
+        contentWithDialogs
             .task(id: table.id) { await resetAndLoad() }
             .onChange(of: refreshCoordinator.signal(for: connectionID)) { _, _ in
                 Task { await refreshCurrentPage() }
             }
-            .onChange(of: page) {
-                guard !isResetting else { return }
-                selectedRowID = nil
-                Task { await loadRows() }
-            }
-            .onChange(of: sortOrder) {
-                guard !isResetting else { return }
-                page = 0
-                Task { await loadRows() }
-            }
-            .onChange(of: pageSize) {
-                guard !isResetting else { return }
-                page = 0
-                Task { await loadRows() }
-            }
-            .onChange(of: search) {
-                guard !isResetting else { return }
-                scheduleSearch()
-            }
+            .onChange(of: page) { handlePageChange() }
+            .onChange(of: sortOrder) { handleSortChange() }
+            .onChange(of: pageSize) { handlePageSizeChange() }
+            .onChange(of: search) { handleSearchChange() }
+            .onChange(of: filterValue) { handleFilterChange() }
+            .onChange(of: filterColumn) { handleFilterChange() }
             .onChange(of: selectedRowID) { previous, current in
-                if previous == nil, current != nil { showRowInspector = true }
-                // Cancel inline edit when selection moves to a different row
-                if let editingRow = editState.rowID, current != editingRow {
-                    cancelInlineEdit()
-                }
+                handleSelectionChange(previous: previous, current: current)
             }
+    }
+
+    private var contentWithDialogs: some View {
+        content
             .confirmationDialog(
                 "Delete this row?",
-                isPresented: Binding(get: { pendingDeleteRow != nil }, set: { if !$0 { pendingDeleteRow = nil } }),
+                isPresented: deleteDialogPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete", role: .destructive) { confirmDelete() }
@@ -107,11 +116,50 @@ struct TableDataView: View {
             } message: {
                 Text("This permanently deletes the row. This can't be undone.")
             }
-            .alert("Operation failed", isPresented: Binding(get: { mutationError != nil }, set: { if !$0 { mutationError = nil } })) {
+            .alert("Operation failed", isPresented: mutationErrorPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(mutationError ?? "")
             }
+    }
+
+    private var deleteDialogPresented: Binding<Bool> {
+        Binding(get: { pendingDeleteRow != nil }, set: { if !$0 { pendingDeleteRow = nil } })
+    }
+
+    private func handlePageChange() {
+        guard !isResetting else { return }
+        selectedRowID = nil
+        Task { await loadRows() }
+    }
+
+    private func handleSortChange() {
+        guard !isResetting else { return }
+        page = 0
+        Task { await loadRows() }
+    }
+
+    private func handlePageSizeChange() {
+        guard !isResetting else { return }
+        page = 0
+        Task { await loadRows() }
+    }
+
+    private func handleSearchChange() {
+        guard !isResetting else { return }
+        scheduleSearch()
+    }
+
+    private func handleFilterChange() {
+        guard !isResetting else { return }
+        scheduleColumnFilter()
+    }
+
+    private func handleSelectionChange(previous: Int?, current: Int?) {
+        if previous == nil, current != nil { showRowInspector = true }
+        if let editingRow = editState.rowID, current != editingRow {
+            cancelInlineEdit()
+        }
     }
 
     // MARK: - Content
@@ -163,7 +211,8 @@ struct TableDataView: View {
                     },
                     onDuplicate: { id in
                         if canMutate { duplicateRow(id) }
-                    }
+                    },
+                    sqlCopy: canMutate ? RowSQLCopyContext(table: table, dialect: dialect, primaryKeys: primaryKeys) : nil
                 )
                 if let mode = inlineEditorMode {
                     Divider()
@@ -186,9 +235,9 @@ struct TableDataView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if totalRows?.value == 0 {
             PlaceholderView(
-                title: isSearching ? "No matches" : "No rows yet",
-                subtitle: isSearching ? "Nothing matches \"\(appliedSearch)\"." : "This table is empty.",
-                systemImage: isSearching ? "magnifyingglass" : "tablecells"
+                title: isFiltered ? "No matches" : "No rows yet",
+                subtitle: emptyFilterSubtitle,
+                systemImage: isFiltered ? "magnifyingglass" : "tablecells"
             )
         } else {
             Color.clear
@@ -197,6 +246,16 @@ struct TableDataView: View {
 
     // MARK: - Action bar
 
+    private var emptyFilterSubtitle: String {
+        if isColumnFiltering {
+            return "Nothing in \(appliedFilterColumn) matches \"\(appliedFilterValue)\"."
+        }
+        if isSearching {
+            return "Nothing matches \"\(appliedSearch)\"."
+        }
+        return "This table is empty."
+    }
+
     private var actionBar: some View {
         HStack(spacing: 10) {
             HStack(spacing: 6) {
@@ -204,8 +263,34 @@ struct TableDataView: View {
                 TextField("Search rows", text: $search)
                     .textFieldStyle(.plain)
                 if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: .rect(cornerRadius: 7))
+            .frame(maxWidth: 280)
+
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+                Picker("Column", selection: $filterColumn) {
+                    Text("Column").tag("")
+                    ForEach(columns, id: \.name) { col in
+                        Text(col.name).tag(col.name)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 120)
+                TextField("Filter value", text: $filterValue)
+                    .textFieldStyle(.plain)
+                    .disabled(filterColumn.isEmpty)
+                if !filterValue.isEmpty || !filterColumn.isEmpty {
                     Button {
-                        search = ""
+                        filterColumn = ""
+                        filterValue = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
@@ -467,6 +552,10 @@ struct TableDataView: View {
         primaryKeys = []
         search = ""
         appliedSearch = ""
+        filterColumn = ""
+        filterValue = ""
+        appliedFilterColumn = ""
+        appliedFilterValue = ""
         await loadColumns()
         await loadKeys()
         await loadCount()
@@ -480,6 +569,20 @@ struct TableDataView: View {
             try? await Task.sleep(for: Self.searchDebounce)
             if Task.isCancelled { return }
             appliedSearch = search
+            page = 0
+            selectedRowID = nil
+            await loadCount()
+            await loadRows()
+        }
+    }
+
+    private func scheduleColumnFilter() {
+        filterTask?.cancel()
+        filterTask = Task {
+            try? await Task.sleep(for: Self.searchDebounce)
+            if Task.isCancelled { return }
+            appliedFilterColumn = filterColumn
+            appliedFilterValue = filterValue
             page = 0
             selectedRowID = nil
             await loadCount()
@@ -519,7 +622,12 @@ struct TableDataView: View {
         countGeneration += 1
         let generation = countGeneration
         let value: RowCount?
-        if isSearching {
+        if isColumnFiltering {
+            let count = try? await manager.filterRowCount(
+                table, on: connectionID, column: appliedFilterColumn, term: appliedFilterValue
+            )
+            value = count.map { RowCount(value: $0, isEstimate: false) }
+        } else if isSearching {
             let count = try? await manager.searchRowCount(table, on: connectionID, columns: columns.map(\.name), term: appliedSearch)
             value = count.map { RowCount(value: $0, isEstimate: false) }
         } else {
@@ -541,7 +649,17 @@ struct TableDataView: View {
         defer { if generation == rowsGeneration { loadingRows = false } }
         do {
             let fetched: QueryResult
-            if isSearching {
+            if isColumnFiltering {
+                fetched = try await manager.filterRows(
+                    table,
+                    on: connectionID,
+                    column: appliedFilterColumn,
+                    term: appliedFilterValue,
+                    limit: pageSize,
+                    offset: page * pageSize,
+                    sort: currentSort
+                )
+            } else if isSearching {
                 fetched = try await manager.searchRows(
                     table,
                     on: connectionID,

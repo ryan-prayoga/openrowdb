@@ -27,6 +27,7 @@ struct ShortcutsHelpView: View {
         ShortcutGroup(title: "Query Editor", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Run query"),
             ShortcutEntry(keys: ["⌘", "."], description: "Cancel in-flight query"),
+            ShortcutEntry(keys: ["⌘", "⇧", "F"], description: "Format SQL"),
             ShortcutEntry(keys: ["Tab"], description: "Trigger autocomplete"),
             ShortcutEntry(keys: ["⌘", "F"], description: "Find in editor"),
         ]),

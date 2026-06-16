@@ -23,6 +23,7 @@ struct OpenrowDBApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var manager = OpenrowDBApp.makeManager()
     @State private var history = OpenrowDBApp.makeHistory()
+    @State private var snippets = OpenrowDBApp.makeSnippets()
     @State private var tabs = WorkspaceTabsState()
     @State private var refreshCoordinator = RefreshCoordinator()
     @State private var showingNewConnection = false
@@ -34,6 +35,7 @@ struct OpenrowDBApp: App {
             ContentView(showingNewConnection: $showingNewConnection)
                 .environment(manager)
                 .environment(history)
+                .environment(snippets)
                 .environment(tabs)
                 .environment(refreshCoordinator)
                 .task {
@@ -101,6 +103,17 @@ struct OpenrowDBApp: App {
             let fallback = FileManager.default.temporaryDirectory
                 .appendingPathComponent("OpenrowDB/history.sqlite")
             return try! QueryHistoryStore(fileURL: fallback)
+        }
+    }
+
+    @MainActor
+    private static func makeSnippets() -> QuerySnippetStore {
+        do {
+            return try QuerySnippetStore()
+        } catch {
+            let fallback = FileManager.default.temporaryDirectory
+                .appendingPathComponent("OpenrowDB/snippets.sqlite")
+            return try! QuerySnippetStore(fileURL: fallback)
         }
     }
 }

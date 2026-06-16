@@ -90,8 +90,14 @@ struct CodeEditor: NSViewRepresentable {
         textView.insertionPointColor = .labelColor
         textView.string = text
 
+        let ruler = LineNumberRulerView(textView: textView, scrollView: scroll)
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
+        scroll.verticalRulerView = ruler
+
         scroll.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.rulerView = ruler
 
         let highlighter = SQLSyntaxHighlighter(dialect: dialect)
         textView.textStorage?.delegate = highlighter
@@ -123,6 +129,7 @@ struct CodeEditor: NSViewRepresentable {
         }
 
         applyErrorHighlight(textView, position: errorPosition)
+        context.coordinator.rulerView?.refresh()
 
         if jumpRequest != context.coordinator.lastJumpRequest {
             context.coordinator.lastJumpRequest = jumpRequest
@@ -199,6 +206,7 @@ struct CodeEditor: NSViewRepresentable {
         var schema: SchemaSnapshot
         var onSubmit: (() -> Void)?
         weak var textView: NSTextView?
+        weak var rulerView: LineNumberRulerView?
         var highlighter: SQLSyntaxHighlighter?
         var lastJumpRequest: Int = 0
 
@@ -224,6 +232,7 @@ struct CodeEditor: NSViewRepresentable {
             if text.wrappedValue != newValue {
                 text.wrappedValue = newValue
             }
+            rulerView?.refresh()
             scheduleCompletion(in: textView)
         }
 

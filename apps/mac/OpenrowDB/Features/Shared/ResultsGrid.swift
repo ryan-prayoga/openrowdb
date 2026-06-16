@@ -1,6 +1,14 @@
 // ResultsGrid.swift
+import AppKit
 import OpenrowDBCore
 import SwiftUI
+
+/// Context for generating INSERT/UPDATE SQL from a grid row.
+struct RowSQLCopyContext {
+    let table: TableRef
+    let dialect: SQLDialect
+    let primaryKeys: [String]
+}
 
 // Shared mutable state for inline row editing. Owned by TableDataView,
 // read by ResultsGrid cells — @Observable means any cell that reads a
@@ -38,6 +46,8 @@ struct ResultsGrid: View {
     var onEdit: ((Int) -> Void)? = nil
     var onDelete: ((Int) -> Void)? = nil
     var onDuplicate: ((Int) -> Void)? = nil
+    /// When set, context menu offers Copy as INSERT / UPDATE.
+    var sqlCopy: RowSQLCopyContext? = nil
 
     private var columns: [ResultColumn] {
         result.columns.enumerated().map { ResultColumn(id: $0.offset, name: $0.element) }
@@ -92,6 +102,16 @@ struct ResultsGrid: View {
                     Button { copyRow(id) } label: {
                         Label("Copy as TSV", systemImage: "doc.on.clipboard")
                     }
+                    if let sqlCopy {
+                        Button { copyRowAsInsert(id, context: sqlCopy) } label: {
+                            Label("Copy as INSERT", systemImage: "text.append")
+                        }
+                        if !sqlCopy.primaryKeys.isEmpty {
+                            Button { copyRowAsUpdate(id, context: sqlCopy) } label: {
+                                Label("Copy as UPDATE", systemImage: "text.badge.checkmark")
+                            }
+                        }
+                    }
                 }
             } primaryAction: { items in
                 // Double-click
@@ -109,6 +129,37 @@ struct ResultsGrid: View {
         guard result.rows.indices.contains(id) else { return }
         let row = result.rows[id]
         let text = zip(result.columns, row).map { "\($0)\t\($1 ?? "NULL")" }.joined(separator: "\n")
+        paste(text)
+    }
+
+    private func copyRowAsInsert(_ id: Int, context: RowSQLCopyContext) {
+        guard let values = rowValues(id) else { return }
+        let cols = values.map(\.column)
+        let sqlValues = values.map(\.value)
+        let sql = context.dialect.insertRowSQL(context.table, columns: cols, values: sqlValues)
+        paste(sql)
+    }
+
+    private func copyRowAsUpdate(_ id: Int, context: RowSQLCopyContext) {
+        guard let values = rowValues(id) else { return }
+        let pkSet = Set(context.primaryKeys)
+        let assignments = values.filter { !pkSet.contains($0.column) }
+        let predicates = values.filter { pkSet.contains($0.column) }
+        guard !predicates.isEmpty else { return }
+        let sql = context.dialect.updateRowSQL(context.table, assignments: assignments, predicates: predicates)
+        paste(sql)
+    }
+
+    private func rowValues(_ id: Int) -> [(column: String, value: SQLValue)]? {
+        guard result.rows.indices.contains(id) else { return nil }
+        let row = result.rows[id]
+        return result.columns.enumerated().map { index, name in
+            let cell = row.indices.contains(index) ? row[index] : nil
+            return (column: name, value: cell.map(SQLValue.text) ?? .null)
+        }
+    }
+
+    private func paste(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }

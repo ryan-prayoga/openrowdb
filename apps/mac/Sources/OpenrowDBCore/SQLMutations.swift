@@ -138,6 +138,23 @@ public extension SQLDialect {
         "SELECT COUNT(*) FROM \(qualifiedName(table)) WHERE \(searchPredicate(columns: columns, term: term))"
     }
 
+    /// Paged `SELECT *` filtered by a single-column substring match.
+    func filterRowsSQL(
+        _ table: TableRef,
+        column: String,
+        term: String,
+        limit: Int,
+        offset: Int,
+        sort: SortSpec? = nil
+    ) -> String {
+        searchRowsSQL(table, columns: [column], term: term, limit: limit, offset: offset, sort: sort)
+    }
+
+    /// Exact count for a single-column filter.
+    func filterCountSQL(_ table: TableRef, column: String, term: String) -> String {
+        searchCountSQL(table, columns: [column], term: term)
+    }
+
     // MARK: - Primary key introspection
 
     /// SQL returning a table's primary-key column names in key order. Used to

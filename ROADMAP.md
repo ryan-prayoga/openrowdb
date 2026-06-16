@@ -74,9 +74,17 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] ⌘R refresh — sidebar tree, row counts, active table page, schema catalog
 - [x] Shortcuts help aligned with inline row editing (removed dead sheet references)
 - [x] Structure editor loads real nullability + defaults via `columnDefinitions`
-- [ ] Saved query snippets
-- [ ] SQL formatter
+- [x] Saved query snippets — `QuerySnippetStore` + snippets panel per connection
+- [x] SQL formatter — `SQLFormatter` + ⌘⇧F in query editor
+- [x] Copy row as INSERT / UPDATE — table viewer context menu
+- [x] Column filter — per-column substring filter in table viewer
+- [x] Line numbers — gutter ruler in SQL editor
+- [x] Rows affected — MySQL driver reports via `onMetadata` (Postgres pending NIO API)
 - [ ] SSH tunneling
+- [ ] Explain plan viewer
+- [ ] Foreign key navigation
+- [ ] Read-only connection mode
+- [ ] Tab persistence across restart
 - [ ] …see pre-release plan for full Tier A/B backlog
 
 ## Phase 5 — Ship v0.1.0 (Day 14)

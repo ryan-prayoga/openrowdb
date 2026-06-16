@@ -69,6 +69,9 @@ public final class PostgresDriver: DatabaseClient {
             }
             rendered.append(row.map(Self.render))
         }
+
+        // PostgresClient's async API does not expose the command tag (rows
+        // affected) after iteration. DML without RETURNING leaves rowsAffected nil.
         return QueryResult(columns: columns, rows: rendered)
     }
 

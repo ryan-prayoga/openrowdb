@@ -236,6 +236,32 @@ public final class ConnectionManager {
         }
     }
 
+    /// Fetch a page of rows matching a single-column filter.
+    public func filterRows(
+        _ table: TableRef,
+        on id: UUID,
+        column: String,
+        term: String,
+        limit: Int,
+        offset: Int,
+        sort: SortSpec? = nil
+    ) async throws -> QueryResult {
+        try await perform(id, database: table.database) {
+            try await $0.query($0.dialect.filterRowsSQL(table, column: column, term: term, limit: limit, offset: offset, sort: sort))
+        }
+    }
+
+    /// Exact count for a single-column filter.
+    public func filterRowCount(_ table: TableRef, on id: UUID, column: String, term: String) async throws -> Int {
+        try await perform(id, database: table.database) { client in
+            let result = try await client.query(client.dialect.filterCountSQL(table, column: column, term: term))
+            guard let first = result.rows.first?.first, let value = first, let count = Int(value) else {
+                return 0
+            }
+            return count
+        }
+    }
+
     // MARK: - Row mutations (DML)
 
     /// Insert one row. Columns/values must be equal length.

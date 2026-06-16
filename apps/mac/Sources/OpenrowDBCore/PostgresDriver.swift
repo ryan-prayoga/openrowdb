@@ -26,7 +26,9 @@ public final class PostgresDriver: DatabaseClient {
     }
 
     public func connect() async throws {
-        let config = PostgresClient.Configuration(
+        if state.withLock({ $0.client != nil }) { return }
+
+        var config = PostgresClient.Configuration(
             host: connection.host,
             port: connection.port,
             username: connection.user,
@@ -34,8 +36,18 @@ public final class PostgresDriver: DatabaseClient {
             database: connection.database,
             tls: Self.tls(for: connection.sslMode)
         )
+        // GUI sessions are short-lived and explicitly disconnected. Disabling
+        // keep-alive avoids ConnectionPool idle/keep-alive timers that can race
+        // with abrupt Task cancellation during close() (swift_task_dealloc abort).
+        config.options.keepAliveBehavior = nil
+        config.options.minimumConnections = 0
+        config.options.maximumConnections = 2
+        config.options.connectionIdleTimeout = .seconds(120)
+
         let client = PostgresClient(configuration: config)
-        let runTask = Task { await client.run() }
+        let runTask = Task.detached(priority: .utility) {
+            await client.run()
+        }
         state.withLock {
             $0.client = client
             $0.runTask = runTask
@@ -82,11 +94,19 @@ public final class PostgresDriver: DatabaseClient {
             s.runTask = nil
             return t
         }
-        // Cancel but do NOT `await task.value`: PostgresClient.run() reacts to
-        // graceful-shutdown signals (ServiceLifecycle), not Task cancellation, so
-        // awaiting the run task here can block indefinitely. Cancellation still
-        // tears the pool down asynchronously.
-        task?.cancel()
+        guard let task else { return }
+        task.cancel()
+        // Cancellation triggers ConnectionPool.triggerForceShutdown(), but timer
+        // child tasks need a beat to finish. Bounded wait avoids indefinite hang
+        // while letting the pool drain cleanly (prevents runTimer dealloc abort).
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await task.value }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(750))
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
     }
 
     // MARK: - Helpers

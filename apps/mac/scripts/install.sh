@@ -18,7 +18,7 @@ INSTALL_ROOT="${OPENROWDB_INSTALL_DIR:-/Applications}"
 MIRROR_BASE="${OPENROWDB_MIRROR_URL:-https://openrowdb.ryanprayoga.dev}"
 
 die() { echo "error: $*" >&2; exit 1; }
-info() { echo "==> $*"; }
+info() { echo "==> $*" >&2; }
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   die "OpenrowDB is macOS only."
@@ -64,9 +64,15 @@ download_asset() {
   for suffix in zip dmg; do
     url="$(curl -fsSL "$api" 2>/dev/null | grep -o "https://[^\"]*OpenrowDB-${ver}.${suffix}" | head -1 || true)"
     if [[ -n "$url" ]]; then
+      local out="${dest}.${suffix}"
       info "Downloading OpenrowDB-${ver}.${suffix} from GitHub…"
-      curl -fL --progress-bar "$url" -o "${dest}.${suffix}"
-      echo "${dest}.${suffix}"
+      if [[ -t 2 ]]; then
+        curl -fL --progress-bar "$url" -o "$out"
+      else
+        curl -fsSL "$url" -o "$out"
+      fi
+      [[ -f "$out" ]] || die "Download failed: $out"
+      echo "$out"
       return 0
     fi
   done
@@ -75,9 +81,13 @@ download_asset() {
     local mirror="${MIRROR_BASE}/releases/${name}"
     if curl -fsI "$mirror" 2>/dev/null | head -1 | grep -q '200'; then
       info "Downloading ${name} from mirror…"
-      local out="${dest}${name##*.}"
-      out="${dest}.${name##*.}"
-      curl -fL --progress-bar "$mirror" -o "$out"
+      local out="${dest}.${name##*.}"
+      if [[ -t 2 ]]; then
+        curl -fL --progress-bar "$mirror" -o "$out"
+      else
+        curl -fsSL "$mirror" -o "$out"
+      fi
+      [[ -f "$out" ]] || die "Download failed: $out"
       echo "$out"
       return 0
     fi
@@ -119,6 +129,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 artifact="${work}/artifact"
 downloaded="$(download_asset "$VERSION" "$artifact")"
+[[ -f "$downloaded" ]] || die "Downloaded file missing: $downloaded"
 
 case "$downloaded" in
   *.zip) install_from_zip "$downloaded" ;;

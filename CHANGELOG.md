@@ -2,6 +2,13 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1] — 2026-06-17
+
+### Fixed
+
+- **Crash on Postgres connect** — `ConnectionPool.runTimer` abort during pool shutdown; disable keep-alive timers and drain the pool cleanly on disconnect
+- **`install.sh` piped install** — progress lines no longer corrupt the downloaded artifact path (`info()` → stderr)
+
 ## [0.1.0] — 2026-06-17
 
 First public preview. Native macOS database client for PostgreSQL and MySQL.

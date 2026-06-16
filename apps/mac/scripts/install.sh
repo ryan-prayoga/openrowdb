@@ -100,11 +100,11 @@ install_from_zip() {
   local zip="$1"
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
   ditto -x -k "$zip" "$tmp"
   [[ -d "${tmp}/${BUNDLE}" ]] || die "Archive missing ${BUNDLE}"
   rm -rf "${dest_dir}/${BUNDLE}"
   ditto "${tmp}/${BUNDLE}" "${dest_dir}/${BUNDLE}"
+  rm -rf "$tmp"
 }
 
 install_from_dmg() {

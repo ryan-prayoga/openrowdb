@@ -4,57 +4,71 @@ import Observation
 import OpenrowDBCore
 import SwiftUI
 
-/// One tab inside a connection's workspace. Browse is the default, non-closable
-/// tab; query tabs are user-created scratchpads with independent SQL + results;
-/// table tabs view one specific table's rows (opened from Browse via context menu).
 enum WorkspaceTab: Hashable, Identifiable {
-    case browse
     case query(UUID)
     case table(TableRef)
+    case structure(UUID)
 
     var id: String {
         switch self {
-        case .browse: return "browse"
         case .query(let uuid): return "query:\(uuid.uuidString)"
         case .table(let ref): return "table:\(ref.id)"
+        case .structure(let uuid): return "structure:\(uuid.uuidString)"
         }
-    }
-
-    var isClosable: Bool {
-        if case .browse = self { return false }
-        return true
     }
 }
 
-/// Per-connection tab state. Each open connection gets its own bag of tabs so
-/// switching between connections preserves whatever was open in each.
 @MainActor
 @Observable
 final class WorkspaceTabsState {
     private(set) var tabsByConnection: [UUID: [WorkspaceTab]] = [:]
     private(set) var selectionByConnection: [UUID: WorkspaceTab] = [:]
 
-    func tabs(for connectionID: UUID) -> [WorkspaceTab] {
-        if let existing = tabsByConnection[connectionID] { return existing }
-        // First time we see this connection — seed with the Browse tab.
-        let seeded: [WorkspaceTab] = [.browse]
-        tabsByConnection[connectionID] = seeded
-        selectionByConnection[connectionID] = .browse
-        return seeded
+    @ObservationIgnored
+    private var runnersByTab: [UUID: QueryRunner] = [:]
+
+    // Structure tab metadata lives off the observable graph (closures are not
+    // observable-compatible) but is managed alongside tab open/close.
+    struct StructureTabMeta {
+        let dialect: SQLDialect
+        let database: String
+        let schemas: [String]
+        let defaultSchema: String
+        let existingTable: TableRef?
+        let onSaved: (TableRef) -> Void
+    }
+    @ObservationIgnored
+    private(set) var structureMeta: [UUID: StructureTabMeta] = [:]
+
+    func runner(
+        for tabID: UUID,
+        connectionID: UUID,
+        manager: ConnectionManager,
+        history: QueryHistoryStore
+    ) -> QueryRunner {
+        if let existing = runnersByTab[tabID] { return existing }
+        let runner = QueryRunner(
+            connectionID: connectionID,
+            tabID: tabID,
+            manager: manager,
+            history: history
+        )
+        runnersByTab[tabID] = runner
+        return runner
     }
 
-    func selection(for connectionID: UUID) -> WorkspaceTab {
-        _ = tabs(for: connectionID)
-        return selectionByConnection[connectionID] ?? .browse
+    func tabs(for connectionID: UUID) -> [WorkspaceTab] {
+        tabsByConnection[connectionID] ?? []
+    }
+
+    func selection(for connectionID: UUID) -> WorkspaceTab? {
+        selectionByConnection[connectionID]
     }
 
     func select(_ tab: WorkspaceTab, for connectionID: UUID) {
-        _ = tabs(for: connectionID)
         selectionByConnection[connectionID] = tab
     }
 
-    /// Open a new query tab and select it. Returns the new tab so callers can
-    /// reference it (e.g. to focus the editor).
     @discardableResult
     func openQueryTab(for connectionID: UUID) -> WorkspaceTab {
         var current = tabs(for: connectionID)
@@ -65,8 +79,6 @@ final class WorkspaceTabsState {
         return tab
     }
 
-    /// Open a table viewer tab for the given table. If a tab for this table is
-    /// already open, just select it instead of creating a duplicate.
     @discardableResult
     func openTableTab(_ table: TableRef, for connectionID: UUID) -> WorkspaceTab {
         var current = tabs(for: connectionID)
@@ -81,30 +93,62 @@ final class WorkspaceTabsState {
         return tab
     }
 
-    /// Close a tab. Browse is never closable. When the currently selected tab is
-    /// removed, selection falls back to the previous tab (or Browse).
+    func openStructureTab(
+        for connectionID: UUID,
+        dialect: SQLDialect,
+        database: String,
+        schemas: [String] = [],
+        defaultSchema: String = "public",
+        existingTable: TableRef? = nil,
+        onSaved: @escaping (TableRef) -> Void
+    ) {
+        let tabID = UUID()
+        structureMeta[tabID] = StructureTabMeta(
+            dialect: dialect,
+            database: database,
+            schemas: schemas,
+            defaultSchema: defaultSchema,
+            existingTable: existingTable,
+            onSaved: onSaved
+        )
+        var current = tabs(for: connectionID)
+        current.append(.structure(tabID))
+        tabsByConnection[connectionID] = current
+        selectionByConnection[connectionID] = .structure(tabID)
+    }
+
     func closeTab(_ tab: WorkspaceTab, for connectionID: UUID) {
-        guard tab.isClosable else { return }
         var current = tabs(for: connectionID)
         guard let removedIndex = current.firstIndex(of: tab) else { return }
         current.remove(at: removedIndex)
         tabsByConnection[connectionID] = current
 
+        switch tab {
+        case .query(let id): runnersByTab[id] = nil
+        case .structure(let id): structureMeta[id] = nil
+        case .table: break
+        }
+
         if selectionByConnection[connectionID] == tab {
-            let fallback = current.indices.contains(removedIndex - 1)
+            selectionByConnection[connectionID] = current.indices.contains(removedIndex - 1)
                 ? current[removedIndex - 1]
-                : current.first ?? .browse
-            selectionByConnection[connectionID] = fallback
+                : current.first
         }
     }
 
-    /// Close the currently selected tab, if any (no-op for Browse).
     func closeSelectedTab(for connectionID: UUID) {
-        closeTab(selection(for: connectionID), for: connectionID)
+        guard let selected = selection(for: connectionID) else { return }
+        closeTab(selected, for: connectionID)
     }
 
-    /// Drop all state for a connection (e.g. on disconnect-and-remove).
     func reset(for connectionID: UUID) {
+        for tab in tabsByConnection[connectionID] ?? [] {
+            switch tab {
+            case .query(let id): runnersByTab[id] = nil
+            case .structure(let id): structureMeta[id] = nil
+            case .table: break
+            }
+        }
         tabsByConnection[connectionID] = nil
         selectionByConnection[connectionID] = nil
     }

@@ -24,7 +24,10 @@ struct OpenrowDBApp: App {
     @State private var manager = OpenrowDBApp.makeManager()
     @State private var history = OpenrowDBApp.makeHistory()
     @State private var tabs = WorkspaceTabsState()
+    @State private var refreshCoordinator = RefreshCoordinator()
     @State private var showingNewConnection = false
+    @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
+    @State private var showingShortcuts = false
 
     var body: some Scene {
         WindowGroup {
@@ -32,8 +35,22 @@ struct OpenrowDBApp: App {
                 .environment(manager)
                 .environment(history)
                 .environment(tabs)
+                .environment(refreshCoordinator)
                 .task {
                     try? manager.reload()
+                }
+                .sheet(isPresented: $showingOnboarding, onDismiss: {
+                    // onDismiss fires after the sheet animation completes —
+                    // safe to present another sheet here with no race condition.
+                    showingNewConnection = true
+                }) {
+                    OnboardingView {
+                        UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
+                        showingOnboarding = false
+                    }
+                }
+                .sheet(isPresented: $showingShortcuts) {
+                    ShortcutsHelpView()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -47,6 +64,12 @@ struct OpenrowDBApp: App {
                     showingNewConnection = true
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+            }
+            CommandGroup(replacing: .help) {
+                Button("Keyboard Shortcuts…") {
+                    showingShortcuts = true
+                }
+                .keyboardShortcut("/", modifiers: .command)
             }
         }
     }

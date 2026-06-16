@@ -3,7 +3,7 @@ import OpenrowDBCore
 import SwiftUI
 
 /// Detail surface for a selected connection: header bar on top, then a tab
-/// strip (Browse + N query scratchpads), then the active tab's content.
+/// strip (table / query / structure tabs), then the active tab's content.
 struct WorkspaceView: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(WorkspaceTabsState.self) private var tabs
@@ -33,7 +33,12 @@ struct WorkspaceView: View {
             }
             .background(shortcutCatchers)
         } else {
-            ContentUnavailableView("Connection unavailable", systemImage: "exclamationmark.triangle")
+            PlaceholderView(
+                title: "Connection unavailable",
+                subtitle: "Pick a connection from the sidebar to get started.",
+                systemImage: "exclamationmark.triangle",
+                variant: .error
+            )
         }
     }
 
@@ -65,14 +70,78 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        switch tabs.selection(for: connectionID) {
-        case .browse:
-            BrowseView(connectionID: connectionID)
-        case .query(let id):
-            QueryEditorView(connectionID: connectionID, tabID: id)
-        case .table(let ref):
-            TableViewerView(connectionID: connectionID, table: ref)
+        // GeometryReader + strict-width frame on each tab forces children
+        // (especially SwiftUI Table → NSTableView) to honor the parent's
+        // available width. NSTableView caches its minimum width as the sum of
+        // column widths and refuses to shrink when the outer NavigationSplitView
+        // sidebar animates in, so we bypass its preferred-size negotiation by
+        // pinning each tab to the geometry's exact width.
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                switch tabs.selection(for: connectionID) {
+                case .query(let id):
+                    QueryEditorView(connectionID: connectionID, tabID: id, leadingInset: geo.safeAreaInsets.leading)
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                        .transition(slideTransition)
+                case .table(let ref):
+                    TableViewerView(connectionID: connectionID, table: ref, leadingInset: geo.safeAreaInsets.leading)
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                        .transition(slideTransition)
+                case .structure(let id):
+                    if let meta = tabs.structureMeta[id] {
+                        TableStructureView(
+                            connectionID: connectionID,
+                            mode: meta.existingTable == nil ? .create : .edit,
+                            dialect: meta.dialect,
+                            database: meta.database,
+                            schemas: meta.schemas,
+                            defaultSchema: meta.defaultSchema,
+                            existingTable: meta.existingTable,
+                            onSaved: { table in
+                                meta.onSaved(table)
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    tabs.closeTab(.structure(id), for: connectionID)
+                                }
+                            },
+                            onCancel: {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    tabs.closeTab(.structure(id), for: connectionID)
+                                }
+                            }
+                        )
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                        .transition(slideTransition)
+                    }
+                case .none:
+                    PlaceholderView(
+                        title: "No tab open",
+                        subtitle: "Pick a table from the sidebar, or open a query with ⌘T.",
+                        systemImage: "rectangle.on.rectangle"
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            // `.compositingGroup()` flattens children (including AppKit-hosted
+            // NSTableView inside SwiftUI Table) into one layer so the subsequent
+            // `.clipped()` actually bites during the slide transition. Without
+            // it, the hosted AppKit layer composites independently and renders
+            // outside the detail column — bleeding under the translucent
+            // NavigationSplitView sidebar when a tab slides in/out.
+            .compositingGroup()
+            .clipped()
+            .animation(.easeOut(duration: 0.22), value: tabs.selection(for: connectionID))
         }
+        // Belt-and-suspenders: clip the GeometryReader itself so nothing
+        // escapes the workspace column under any animation timing.
+        .clipped()
+    }
+
+    private var slideTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
     }
 
     // MARK: - Header
@@ -85,9 +154,19 @@ struct WorkspaceView: View {
                 Text("\(connection.driver.rawValue) · \(connection.user)@\(connection.host):\(connection.port)/\(connection.database)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             Spacer()
+
+            if isConnected {
+                DatabaseTransferMenu(
+                    connectionID: connectionID,
+                    dialect: connection.driver.dialect,
+                    databaseName: connection.database
+                )
+            }
 
             statusBadge
 
@@ -151,8 +230,8 @@ struct WorkspaceView: View {
 
 // MARK: - Tab strip
 
-/// Top-level tab bar for a connection's workspace. Browse is always first and
-/// non-closable; query tabs follow with close affordances and a trailing "+".
+/// Top-level tab bar for a connection's workspace. Tabs open on demand from
+/// the sidebar (tables) or via ⌘T (queries); each has a close affordance.
 private struct TabStrip: View {
     @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
@@ -161,26 +240,42 @@ private struct TabStrip: View {
         tabs.tabs(for: connectionID)
     }
 
-    private var selection: WorkspaceTab {
+    private var selection: WorkspaceTab? {
         tabs.selection(for: connectionID)
     }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(Array(openTabs.enumerated()), id: \.element.id) { index, tab in
-                    TabChip(
-                        tab: tab,
-                        label: label(for: tab, index: index),
-                        systemImage: icon(for: tab),
-                        isSelected: tab == selection,
-                        onSelect: { tabs.select(tab, for: connectionID) },
-                        onClose: tab.isClosable ? { tabs.closeTab(tab, for: connectionID) } : nil
-                    )
+                GlassEffectContainer {
+                    HStack(spacing: 4) {
+                        ForEach(Array(openTabs.enumerated()), id: \.element.id) { index, tab in
+                            TabChip(
+                                tab: tab,
+                                label: label(for: tab, index: index),
+                                systemImage: icon(for: tab),
+                                isSelected: tab == selection,
+                                onSelect: {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        tabs.select(tab, for: connectionID)
+                                    }
+                                },
+                                onClose: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        tabs.closeTab(tab, for: connectionID)
+                                    }
+                                }
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: openTabs.map(\.id))
                 }
 
                 Button {
-                    tabs.openQueryTab(for: connectionID)
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        _ = tabs.openQueryTab(for: connectionID)
+                    }
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 22, height: 22)
@@ -197,24 +292,35 @@ private struct TabStrip: View {
 
     private func label(for tab: WorkspaceTab, index: Int) -> String {
         switch tab {
-        case .browse: return "Browse"
         case .query: return "Query \(queryIndex(for: index))"
         case .table(let ref): return ref.name
+        case .structure(let id):
+            if let existing = tabs.structureMeta[id]?.existingTable {
+                return existing.name
+            }
+            return "New Table"
         }
     }
 
     private func icon(for tab: WorkspaceTab) -> String {
         switch tab {
-        case .browse: return "tablecells"
         case .query: return "terminal"
         case .table(let ref): return ref.kind == .view ? "eye" : "tablecells.badge.ellipsis"
+        case .structure: return "square.and.pencil"
         }
     }
 
-    /// 1-based index across query tabs only, so Browse never steals the "1".
+    /// 1-based number across query tabs only. Table and structure tabs don't
+    /// participate, so "Query 1, Table foo, Query 2" reads correctly even when
+    /// table tabs are interleaved.
     private func queryIndex(for absoluteIndex: Int) -> Int {
-        // Browse is always at index 0; query tabs follow.
-        max(1, absoluteIndex)
+        let tabs = openTabs
+        guard absoluteIndex < tabs.count else { return 1 }
+        var count = 0
+        for i in 0...absoluteIndex {
+            if case .query = tabs[i] { count += 1 }
+        }
+        return max(1, count)
     }
 }
 
@@ -226,8 +332,23 @@ private struct TabChip: View {
     let onSelect: () -> Void
     let onClose: (() -> Void)?
 
+    @State private var isHovered = false
+
     var body: some View {
-        HStack(spacing: 6) {
+        Button(action: onSelect) {
+            chipLabel
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+
+    @ViewBuilder
+    private var chipLabel: some View {
+        let inner = HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .imageScale(.small)
             Text(label)
@@ -244,11 +365,15 @@ private struct TabChip: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear))
-        )
         .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+
+        if isSelected {
+            inner.glassEffect(in: .rect(cornerRadius: 6, style: .continuous))
+        } else {
+            inner.background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovered ? Color.primary.opacity(0.06) : .clear)
+            )
+        }
     }
 }

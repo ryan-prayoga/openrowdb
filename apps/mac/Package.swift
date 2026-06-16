@@ -40,7 +40,14 @@ let package = Package(
         .executableTarget(
             name: "OpenrowDB",
             dependencies: ["OpenrowDBCore"],
-            path: "OpenrowDB"
+            path: "OpenrowDB",
+            // Resources processed by Xcode build system:
+            // - Assets.xcassets  → compiled by actool (app icon, accent color)
+            // - Info.plist       → embedded in .app bundle (Phase 5 / Xcode only)
+            // - OpenrowDB.entitlements → referenced in Xcode signing settings (not SwiftPM)
+            resources: [
+                .process("Resources/Assets.xcassets"),
+            ]
         ),
         .testTarget(
             name: "OpenrowDBCoreTests",

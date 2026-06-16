@@ -50,9 +50,18 @@ struct QueryHistoryView: View {
             Divider()
 
             if let loadError {
-                ContentUnavailableView("History unavailable", systemImage: "exclamationmark.triangle", description: Text(loadError))
+                PlaceholderView(
+                    title: "History unavailable",
+                    subtitle: loadError,
+                    systemImage: "exclamationmark.triangle",
+                    variant: .error
+                )
             } else if entries.isEmpty {
-                ContentUnavailableView("No history yet", systemImage: "tray", description: Text("Run a query to populate this list."))
+                PlaceholderView(
+                    title: "No history yet",
+                    subtitle: "Run a query to populate this list.",
+                    systemImage: "tray"
+                )
             } else {
                 List {
                     ForEach(entries) { entry in

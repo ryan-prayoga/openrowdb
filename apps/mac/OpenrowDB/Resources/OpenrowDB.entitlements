@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Outbound TCP for database connections (Postgres :5432, MySQL :3306, custom). -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Keychain access for stored passwords (SecretStore / KeychainSecretStore).
+	     App Sandbox requires this group entry; without Sandbox it is advisory.
+	     Matches KeychainSecretStore's kSecAttrService = "com.openrowdb.mac". -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.openrowdb.mac</string>
+	</array>
+
+	<!-- App Sandbox is intentionally NOT enabled for v0.1.0.
+	     Sandboxed apps cannot open arbitrary TCP sockets to user-configured
+	     hosts:ports without an entitlement per host — incompatible with a
+	     generic DB client. Enable Sandbox and request com.apple.security.network.client
+	     before Mac App Store submission. For direct distribution and notarization
+	     only hardened runtime is required. -->
+</dict>
+</plist>

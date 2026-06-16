@@ -2,6 +2,16 @@
 import OpenrowDBCore
 import SwiftUI
 
+// Shared mutable state for inline row editing. Owned by TableDataView,
+// read by ResultsGrid cells — @Observable means any cell that reads a
+// property re-renders automatically when that property changes.
+@Observable
+final class InlineEditState {
+    var rowID: Int? = nil
+    var values: [String: String?] = [:]
+    var predicates: [(column: String, value: SQLValue)] = []
+}
+
 /// A reusable result-set grid: a SwiftUI `Table` with columns derived dynamically
 /// from a `QueryResult`, clickable header sorting, row selection, and a companion
 /// row inspector. Shared by the schema browser (Phase 2) and the query editor
@@ -10,6 +20,24 @@ struct ResultsGrid: View {
     let result: QueryResult
     @Binding var sortOrder: [ColumnComparator]
     @Binding var selection: Int?
+    /// Leading inset for the scroll content, in points. Used when the grid fills
+    /// a workspace tab beside the translucent NavigationSplitView sidebar, which
+    /// overlays the detail's leading edge; the hosted NSTableView otherwise
+    /// scrolls its columns under the sidebar. Defaults to 0 (e.g. the Browse
+    /// split, where the grid never abuts the sidebar).
+    var leadingInset: CGFloat = 0
+
+    // Row action callbacks — nil = action not available in this context
+    var canMutate: Bool = false
+    /// Non-nil while a row is being inline-edited; cells for that row render
+    /// as TextFields bound to editState.values.
+    var inlineEdit: InlineEditState? = nil
+    var onCommitEdit: (() -> Void)? = nil
+    var onCancelEdit: (() -> Void)? = nil
+    var onDoubleClick: ((Int) -> Void)? = nil
+    var onEdit: ((Int) -> Void)? = nil
+    var onDelete: ((Int) -> Void)? = nil
+    var onDuplicate: ((Int) -> Void)? = nil
 
     private var columns: [ResultColumn] {
         result.columns.enumerated().map { ResultColumn(id: $0.offset, name: $0.element) }
@@ -21,7 +49,11 @@ struct ResultsGrid: View {
 
     var body: some View {
         if columns.isEmpty {
-            ContentUnavailableView("No columns", systemImage: "tablecells")
+            PlaceholderView(
+                title: "No columns",
+                subtitle: "This result set has no columns to display.",
+                systemImage: "tablecells"
+            )
         } else {
             Table(rows, selection: $selection, sortOrder: $sortOrder) {
                 TableColumnForEach(columns) { column in
@@ -29,10 +61,80 @@ struct ResultsGrid: View {
                         column.name,
                         sortUsing: ColumnComparator(columnIndex: column.id, columnName: column.name, order: .forward)
                     ) { row in
-                        CellText(value: row.cells.indices.contains(column.id) ? row.cells[column.id] : nil)
+                        if let edit = inlineEdit, row.id == edit.rowID {
+                            InlineCellTextField(
+                                column: column.name,
+                                editState: edit,
+                                onCommit: onCommitEdit,
+                                onCancel: onCancelEdit
+                            )
+                        } else {
+                            CellText(value: row.cells.indices.contains(column.id) ? row.cells[column.id] : nil)
+                        }
                     }
                 }
             }
+            .contextMenu(forSelectionType: Int.self) { items in
+                if let id = items.first {
+                    if canMutate {
+                        Button { onEdit?(id) } label: {
+                            Label("Edit Row", systemImage: "pencil")
+                        }
+                        Button { onDuplicate?(id) } label: {
+                            Label("Duplicate Row", systemImage: "plus.square.on.square")
+                        }
+                        Divider()
+                        Button(role: .destructive) { onDelete?(id) } label: {
+                            Label("Delete Row", systemImage: "trash")
+                        }
+                        Divider()
+                    }
+                    Button { copyRow(id) } label: {
+                        Label("Copy as TSV", systemImage: "doc.on.clipboard")
+                    }
+                }
+            } primaryAction: { items in
+                // Double-click
+                if let id = items.first { onDoubleClick?(id) }
+            }
+            // Leading padding equal to the sidebar overlap. The hosted
+            // NSTableView extends its scroll area into the leading safe area
+            // (under the translucent sidebar); padding by that amount pulls the
+            // columns back out so the first column isn't hidden by the sidebar.
+            .padding(.leading, leadingInset)
+        }
+    }
+
+    private func copyRow(_ id: Int) {
+        guard result.rows.indices.contains(id) else { return }
+        let row = result.rows[id]
+        let text = zip(result.columns, row).map { "\($0)\t\($1 ?? "NULL")" }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// TextField rendered inside a cell while its row is being inline-edited.
+private struct InlineCellTextField: View {
+    let column: String
+    let editState: InlineEditState
+    let onCommit: (() -> Void)?
+    let onCancel: (() -> Void)?
+
+    var body: some View {
+        TextField(
+            "NULL",
+            text: Binding(
+                get: { editState.values[column].flatMap { $0 } ?? "" },
+                set: { editState.values[column] = .some($0) }
+            )
+        )
+        .font(.system(.body, design: .monospaced))
+        .textFieldStyle(.plain)
+        .onSubmit { onCommit?() }
+        .onKeyPress(.escape) {
+            onCancel?()
+            return .handled
         }
     }
 }
@@ -75,7 +177,11 @@ struct RowInspector: View {
                     }
                 }
             } else {
-                ContentUnavailableView("No row selected", systemImage: "rectangle.and.text.magnifyingglass")
+                PlaceholderView(
+                    title: "No row selected",
+                    subtitle: "Click a row in the table to inspect its values.",
+                    systemImage: "rectangle.and.text.magnifyingglass"
+                )
             }
         }
     }

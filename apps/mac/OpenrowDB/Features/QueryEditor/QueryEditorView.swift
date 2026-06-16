@@ -8,55 +8,115 @@ import SwiftUI
 struct QueryEditorView: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(QueryHistoryStore.self) private var history
+    @Environment(WorkspaceTabsState.self) private var tabs
+    @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connectionID: UUID
     let tabID: UUID
+    /// Leading inset for the result grid, matching the sidebar overlap so the
+    /// first column doesn't render under the translucent sidebar.
+    var leadingInset: CGFloat = 0
 
-    @State private var runner: QueryRunner?
     @State private var showHistory = false
+    @State private var jumpRequest: Int = 0
     @FocusState private var editorFocused: Bool
 
+    @State private var editorHeight: CGFloat = 240
+    @State private var dragStartHeight: CGFloat?
+
+    private static let minEditorHeight: CGFloat = 120
+    private static let minResultsHeight: CGFloat = 160
+
+    /// Pull the runner from the shared per-tab cache so SQL text and last-run
+    /// results survive view recreation when the user switches tabs. Without
+    /// this, every tab switch would tear down `QueryEditorView`, drop its
+    /// local `@State runner`, and the next visit would start from an empty
+    /// editor — surprising behaviour for any database client.
+    private func runner() -> QueryRunner {
+        tabs.runner(
+            for: tabID,
+            connectionID: connectionID,
+            manager: manager,
+            history: history
+        )
+    }
+
     var body: some View {
-        Group {
-            if let runner {
-                content(runner: runner)
-            } else {
-                ProgressView()
-            }
-        }
-        .task(id: tabID) {
-            if runner == nil || runner?.tabID != tabID {
-                runner = QueryRunner(
-                    connectionID: connectionID,
-                    tabID: tabID,
-                    manager: manager,
-                    history: history
-                )
-            }
-        }
+        content(runner: runner())
     }
 
     @ViewBuilder
     private func content(runner: QueryRunner) -> some View {
         @Bindable var runner = runner
 
-        HSplitView {
-            VSplitView {
-                editor(runner: runner)
-                    .frame(minHeight: 120, idealHeight: 220)
+        // HStack horizontal: main pane on the left, optional history on the
+        // right. Conditional sibling intentionally avoids HSplitView — split
+        // views misbehave inside an animated tab parent.
+        HStack(spacing: 0) {
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    editor(runner: runner)
+                        .frame(height: clampedEditorHeight(for: geo.size.height))
 
-                QueryResultsView(outcomes: runner.outcomes, state: runner.state)
-                    .frame(minHeight: 160, maxHeight: .infinity)
+                    horizontalResizeHandle(containerHeight: geo.size.height)
+
+                    QueryResultsView(
+                        outcomes: runner.outcomes,
+                        state: runner.state,
+                        leadingInset: leadingInset,
+                        onJumpToError: { _ in
+                            jumpRequest &+= 1
+                            editorFocused = true
+                        }
+                    )
+                    .frame(maxHeight: .infinity)
+                }
             }
-            .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if showHistory {
+                Divider()
                 QueryHistoryView(connectionID: connectionID) { sql in
                     runner.sql = sql
                     editorFocused = true
                 }
-                .frame(minWidth: 240, idealWidth: 280, maxWidth: 380)
+                .frame(width: 280)
+                .frame(maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: refreshCoordinator.signal(for: connectionID)) { _, _ in
+            Task { await runner.catalog.refresh() }
+        }
+    }
+
+    private func clampedEditorHeight(for containerHeight: CGFloat) -> CGFloat {
+        let maxAllowed = max(Self.minEditorHeight, containerHeight - Self.minResultsHeight - 6)
+        return min(max(editorHeight, Self.minEditorHeight), maxAllowed)
+    }
+
+    private func horizontalResizeHandle(containerHeight: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 6)
+            .overlay(Divider(), alignment: .center)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragStartHeight == nil { dragStartHeight = editorHeight }
+                        let proposed = (dragStartHeight ?? editorHeight) + value.translation.height
+                        let maxAllowed = max(Self.minEditorHeight, containerHeight - Self.minResultsHeight - 6)
+                        editorHeight = min(max(proposed, Self.minEditorHeight), maxAllowed)
+                    }
+                    .onEnded { _ in dragStartHeight = nil }
+            )
     }
 
     // MARK: - Editor
@@ -72,8 +132,11 @@ struct QueryEditorView: View {
                 text: $runner.sql,
                 dialect: dialect,
                 schema: runner.catalog.snapshot,
-                onSubmit: { runner.run() }
+                onSubmit: { runner.run() },
+                errorPosition: firstErrorPosition(in: runner.outcomes),
+                jumpRequest: jumpRequest
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .focused($editorFocused)
             .onAppear {
                 editorFocused = true
@@ -93,7 +156,12 @@ struct QueryEditorView: View {
             Button {
                 runner.run()
             } label: {
-                Label("Run", systemImage: "play.fill")
+                Label {
+                    Text(isRunning(runner.state) ? "Running…" : "Run")
+                } icon: {
+                    Image(systemName: isRunning(runner.state) ? "hourglass" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace))
+                }
             }
             .buttonStyle(.glassProminent)
             .keyboardShortcut(.return, modifiers: .command)
@@ -107,6 +175,7 @@ struct QueryEditorView: View {
                 }
                 .buttonStyle(.glass)
                 .keyboardShortcut(".", modifiers: .command)
+                .transition(.opacity)
             }
 
             Spacer()
@@ -121,6 +190,7 @@ struct QueryEditorView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .animation(.easeInOut(duration: 0.18), value: isRunning(runner.state))
     }
 
     private func statusBar(runner: QueryRunner) -> some View {
@@ -172,5 +242,9 @@ struct QueryEditorView: View {
 
     private func lineCount(_ string: String) -> Int {
         string.isEmpty ? 0 : string.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+    }
+
+    private func firstErrorPosition(in outcomes: [QueryRunner.StatementOutcome]) -> Int? {
+        outcomes.first(where: { $0.errorPosition != nil })?.errorPosition
     }
 }

@@ -16,6 +16,9 @@ final class QueryRunner {
         let durationMs: Int
         let result: QueryResult?
         let error: String?
+        /// 1-indexed character offset within `sql` where the server pinpointed
+        /// the error. Postgres only; nil for MySQL or non-positional errors.
+        let errorPosition: Int?
 
         var didFail: Bool { error != nil }
     }
@@ -94,11 +97,26 @@ final class QueryRunner {
         do {
             let result = try await manager.run(sql, on: connectionID)
             let elapsed = elapsedMs(since: start)
-            return StatementOutcome(sql: sql, durationMs: elapsed, result: result, error: nil)
+            return StatementOutcome(
+                sql: sql,
+                durationMs: elapsed,
+                result: result,
+                error: nil,
+                errorPosition: nil
+            )
         } catch {
             let elapsed = elapsedMs(since: start)
-            let message = (error as? DatabaseError)?.userMessage ?? String(describing: error)
-            return StatementOutcome(sql: sql, durationMs: elapsed, result: nil, error: message)
+            let dbError = error as? DatabaseError
+            let message = dbError?.userMessage ?? String(describing: error)
+            var position: Int?
+            if case let .query(_, _, _, p) = dbError { position = p }
+            return StatementOutcome(
+                sql: sql,
+                durationMs: elapsed,
+                result: nil,
+                error: message,
+                errorPosition: position
+            )
         }
     }
 

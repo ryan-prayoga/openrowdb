@@ -38,13 +38,13 @@ struct TableDataView: View {
 
     @State private var search = ""
     @State private var appliedSearch = ""
-    @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration: UInt64 = 0
 
     @State private var filterColumn = ""
     @State private var filterValue = ""
     @State private var appliedFilterColumn = ""
     @State private var appliedFilterValue = ""
-    @State private var filterTask: Task<Void, Never>?
+    @State private var filterGeneration: UInt64 = 0
 
     // Per-loader generation tokens: each load increments its own counter and
     // only commits if still current, so an out-of-order completion from an
@@ -564,7 +564,8 @@ struct TableDataView: View {
 
     private func resetAndLoad() async {
         isResetting = true
-        searchTask?.cancel()
+        searchGeneration += 1
+        filterGeneration += 1
         page = 0
         sortOrder = []
         result = nil
@@ -594,10 +595,11 @@ struct TableDataView: View {
     }
 
     private func scheduleSearch() {
-        searchTask?.cancel()
-        searchTask = Task {
+        searchGeneration += 1
+        let generation = searchGeneration
+        Task {
             try? await Task.sleep(for: Self.searchDebounce)
-            if Task.isCancelled { return }
+            guard generation == searchGeneration else { return }
             appliedSearch = search
             page = 0
             selectedRowID = nil
@@ -607,10 +609,11 @@ struct TableDataView: View {
     }
 
     private func scheduleColumnFilter() {
-        filterTask?.cancel()
-        filterTask = Task {
+        filterGeneration += 1
+        let generation = filterGeneration
+        Task {
             try? await Task.sleep(for: Self.searchDebounce)
-            if Task.isCancelled { return }
+            guard generation == filterGeneration else { return }
             appliedFilterColumn = filterColumn
             appliedFilterValue = filterValue
             page = 0

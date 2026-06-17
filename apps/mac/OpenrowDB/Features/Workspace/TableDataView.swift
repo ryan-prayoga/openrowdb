@@ -55,6 +55,7 @@ struct TableDataView: View {
     @State private var pendingDeleteRow: Int?
     @State private var mutationError: String?
     @State private var isResetting = false
+    @State private var resetGeneration: UInt64 = 0
 
     // Add-row panel state (edit is handled inline in the grid via editState)
     @State private var inlineEditorMode: InlineRowEditorPanel.Mode?
@@ -563,7 +564,14 @@ struct TableDataView: View {
     // MARK: - Loading
 
     private func resetAndLoad() async {
+        resetGeneration += 1
+        let generation = resetGeneration
         isResetting = true
+        defer {
+            if generation == resetGeneration {
+                isResetting = false
+            }
+        }
         searchGeneration += 1
         filterGeneration += 1
         page = 0
@@ -591,7 +599,6 @@ struct TableDataView: View {
         await loadForeignKeys()
         await loadCount()
         await loadRows()
-        isResetting = false
     }
 
     private func scheduleSearch() {

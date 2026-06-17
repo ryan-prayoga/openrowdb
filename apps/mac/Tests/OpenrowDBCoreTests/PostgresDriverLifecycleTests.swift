@@ -27,6 +27,28 @@ final class PostgresDriverLifecycleTests: XCTestCase {
         }
     }
 
+    func testConcurrentQueriesSerializeWithoutHanging() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["OPENROW_LIVE_DB"] == "1")
+
+        let driver = PostgresDriver(connection: liveConnection(), password: "")
+        try await driver.connect()
+        defer { Task { await driver.close() } }
+
+        try await withThrowingTaskGroup(of: QueryResult.self) { group in
+            for index in 0 ..< 20 {
+                group.addTask {
+                    try await driver.query("SELECT \(index) AS n")
+                }
+            }
+            var count = 0
+            for try await _ in group {
+                count += 1
+            }
+            XCTAssertEqual(count, 20)
+        }
+        await driver.close()
+    }
+
     func testFailedConnectThenCloseDoesNotTrap() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["OPENROW_LIVE_DB"] == "1")
 

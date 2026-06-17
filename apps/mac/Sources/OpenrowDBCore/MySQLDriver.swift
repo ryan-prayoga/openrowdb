@@ -10,105 +10,34 @@ import Synchronization
 ///
 /// MySQLNIO is `EventLoopFuture`-based; we bridge to async via `.get()` and own a
 /// single-thread `EventLoopGroup` that is shut down on `close()`.
-public final class MySQLDriver: DatabaseClient {
-    private let connection: Connection
-    private let password: String?
-    private let state = Mutex<State>(State())
-
-    private struct State {
-        var connection: MySQLConnection?
-        var group: EventLoopGroup?
-    }
+///
+/// All operations run through a private `Session` actor so concurrent callers never
+/// issue overlapping queries on the same wire connection.
+public final class MySQLDriver: DatabaseClient, @unchecked Sendable {
+    private let session: Session
 
     public let dialect: SQLDialect = .mysql
 
     public init(connection: Connection, password: String?) {
-        self.connection = connection
-        self.password = password
+        self.session = Session(connection: connection, password: password)
     }
 
     public func connect() async throws {
-        let address: SocketAddress
-        do {
-            address = try SocketAddress.makeAddressResolvingHost(connection.host, port: connection.port)
-        } catch {
-            throw DatabaseError.invalidAddress(connection.host)
-        }
-
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        do {
-            let conn = try await MySQLConnection.connect(
-                to: address,
-                username: connection.user,
-                database: connection.database,
-                password: password,
-                tlsConfiguration: Self.tls(for: connection.sslMode),
-                serverHostname: connection.host,
-                on: group.next()
-            ).get()
-            state.withLock {
-                $0.connection = conn
-                $0.group = group
-            }
-        } catch {
-            try? await group.shutdownGracefully()
-            throw Self.translate(error)
-        }
+        try await session.connect()
     }
 
     public func query(_ sql: String) async throws -> QueryResult {
-        guard let conn = state.withLock({ $0.connection }) else {
-            throw DatabaseError.notConnected
-        }
-
-        let box = Mutex<(rows: [MySQLRow], metadata: MySQLQueryMetadata?)>((rows: [], metadata: nil))
-        do {
-            try await conn.query(
-                sql,
-                onRow: { row in
-                    box.withLock { $0.rows.append(row) }
-                },
-                onMetadata: { metadata in
-                    box.withLock { $0.metadata = metadata }
-                }
-            ).get()
-        } catch {
-            throw Self.translate(error)
-        }
-
-        var capturedRows: [MySQLRow] = []
-        var rowsAffected: Int?
-        box.withLock {
-            capturedRows = $0.rows
-            rowsAffected = $0.metadata.map { Int($0.affectedRows) }
-        }
-
-        guard let first = capturedRows.first else {
-            return QueryResult(columns: [], rows: [], rowsAffected: rowsAffected)
-        }
-        let columns = first.columnDefinitions.map(\.name)
-        let rendered = capturedRows.map { row in
-            columns.map { name in row.column(name).flatMap(Self.render) }
-        }
-        return QueryResult(columns: columns, rows: rendered, rowsAffected: rowsAffected)
+        try await session.query(sql)
     }
 
     public func close() async {
-        let (conn, group) = state.withLock { s -> (MySQLConnection?, EventLoopGroup?) in
-            let pair = (s.connection, s.group)
-            s.connection = nil
-            s.group = nil
-            return pair
-        }
-        // Best-effort close; ignore failure since we are tearing down anyway.
-        _ = try? await conn?.close().get()
-        try? await group?.shutdownGracefully()
+        await session.close()
     }
 
     // MARK: - Helpers
 
     /// `disable` → plaintext; `prefer`/`require` → TLS without cert verification (post-v1: verify-full).
-    private static func tls(for mode: Connection.SSLMode) -> TLSConfiguration? {
+    fileprivate static func tls(for mode: Connection.SSLMode) -> TLSConfiguration? {
         switch mode {
         case .disable:
             return nil
@@ -140,11 +69,100 @@ public final class MySQLDriver: DatabaseClient {
         }
     }
 
-    private static func render(_ data: MySQLData) -> String? {
+    fileprivate static func render(_ data: MySQLData) -> String? {
         if let s = data.string { return s }
         if let i = data.int { return String(i) }
         if let d = data.double { return String(d) }
         if let b = data.bool { return String(b) }
         return data.description
+    }
+}
+
+// MARK: - Session
+
+private actor Session {
+    private let connection: Connection
+    private let password: String?
+    private var mysqlConnection: MySQLConnection?
+    private var group: EventLoopGroup?
+
+    init(connection: Connection, password: String?) {
+        self.connection = connection
+        self.password = password
+    }
+
+    func connect() async throws {
+        if mysqlConnection != nil { return }
+
+        let address: SocketAddress
+        do {
+            address = try SocketAddress.makeAddressResolvingHost(connection.host, port: connection.port)
+        } catch {
+            throw DatabaseError.invalidAddress(connection.host)
+        }
+
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        do {
+            let conn = try await MySQLConnection.connect(
+                to: address,
+                username: connection.user,
+                database: connection.database,
+                password: password,
+                tlsConfiguration: MySQLDriver.tls(for: connection.sslMode),
+                serverHostname: connection.host,
+                on: group.next()
+            ).get()
+            mysqlConnection = conn
+            self.group = group
+        } catch {
+            try? await group.shutdownGracefully()
+            throw MySQLDriver.translate(error)
+        }
+    }
+
+    func query(_ sql: String) async throws -> QueryResult {
+        guard let conn = mysqlConnection else {
+            throw DatabaseError.notConnected
+        }
+
+        let box = Mutex<(rows: [MySQLRow], metadata: MySQLQueryMetadata?)>((rows: [], metadata: nil))
+        do {
+            try await conn.query(
+                sql,
+                onRow: { row in
+                    box.withLock { $0.rows.append(row) }
+                },
+                onMetadata: { metadata in
+                    box.withLock { $0.metadata = metadata }
+                }
+            ).get()
+        } catch {
+            throw MySQLDriver.translate(error)
+        }
+
+        var capturedRows: [MySQLRow] = []
+        var rowsAffected: Int?
+        box.withLock {
+            capturedRows = $0.rows
+            rowsAffected = $0.metadata.map { Int($0.affectedRows) }
+        }
+
+        guard let first = capturedRows.first else {
+            return QueryResult(columns: [], rows: [], rowsAffected: rowsAffected)
+        }
+        let columns = first.columnDefinitions.map(\.name)
+        let rendered = capturedRows.map { row in
+            columns.map { name in row.column(name).flatMap(MySQLDriver.render) }
+        }
+        return QueryResult(columns: columns, rows: rendered, rowsAffected: rowsAffected)
+    }
+
+    func close() async {
+        let conn = mysqlConnection
+        let group = self.group
+        mysqlConnection = nil
+        self.group = nil
+        _ = try? await conn?.close().get()
+        try? await group?.shutdownGracefully()
     }
 }

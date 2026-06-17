@@ -5,7 +5,6 @@ import NIOCore
 import NIOPosix
 import NIOSSL
 import PostgresNIO
-import Synchronization
 
 /// `DatabaseClient` backed by a single `PostgresConnection` (no connection pool).
 ///
@@ -13,95 +12,36 @@ import Synchronization
 /// crash under Swift 6 on macOS 26 when connect/test/disconnect races occur. A GUI
 /// client only needs one live connection per database, so we mirror `MySQLDriver`:
 /// one NIO event loop, one connection, explicit close.
-public final class PostgresDriver: DatabaseClient {
-    private let connection: Connection
-    private let password: String?
-    private let state = Mutex<State>(State())
-
-    private struct State {
-        var connection: PostgresConnection?
-        var group: EventLoopGroup?
-    }
-
-    private static let logger = Logger(label: "com.openrowdb.postgres")
+///
+/// All operations run through a private `Session` actor so concurrent callers
+/// (table browse + sidebar counts + pagination) never issue overlapping queries on
+/// the same wire connection, which would otherwise hang indefinitely.
+public final class PostgresDriver: DatabaseClient, @unchecked Sendable {
+    private let session: Session
 
     public let dialect: SQLDialect = .postgres
 
     public init(connection: Connection, password: String?) {
-        self.connection = connection
-        self.password = password
+        self.session = Session(connection: connection, password: password)
     }
 
     public func connect() async throws {
-        if state.withLock({ $0.connection != nil }) { return }
-
-        let database = connection.database.isEmpty ? nil : connection.database
-        let config = PostgresConnection.Configuration(
-            host: connection.host,
-            port: connection.port,
-            username: connection.user,
-            password: password,
-            database: database,
-            tls: Self.tls(for: connection.sslMode)
-        )
-
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        do {
-            let conn = try await PostgresConnection.connect(
-                on: group.next(),
-                configuration: config,
-                id: 1,
-                logger: Self.logger
-            )
-            _ = try await conn.query(PostgresQuery(unsafeSQL: "SELECT 1"), logger: Self.logger)
-            state.withLock {
-                $0.connection = conn
-                $0.group = group
-            }
-        } catch {
-            try? await group.shutdownGracefully()
-            throw Self.translate(error)
-        }
+        try await session.connect()
     }
 
     public func query(_ sql: String) async throws -> QueryResult {
-        guard let conn = state.withLock({ $0.connection }) else {
-            throw DatabaseError.notConnected
-        }
-
-        let rows: PostgresRowSequence
-        do {
-            rows = try await conn.query(PostgresQuery(unsafeSQL: sql), logger: Self.logger)
-        } catch {
-            throw Self.translate(error)
-        }
-
-        var columns: [String] = []
-        var rendered: [[String?]] = []
-        for try await row in rows {
-            if columns.isEmpty {
-                columns = row.map(\.columnName)
-            }
-            rendered.append(row.map(Self.render))
-        }
-
-        return QueryResult(columns: columns, rows: rendered)
+        try await session.query(sql)
     }
 
     public func close() async {
-        let (conn, group) = state.withLock { s -> (PostgresConnection?, EventLoopGroup?) in
-            let pair = (s.connection, s.group)
-            s.connection = nil
-            s.group = nil
-            return pair
-        }
-        try? await conn?.close()
-        try? await group?.shutdownGracefully()
+        await session.close()
     }
 
     // MARK: - Helpers
 
-    private static func tls(for mode: Connection.SSLMode) -> PostgresConnection.Configuration.TLS {
+    fileprivate static let logger = Logger(label: "com.openrowdb.postgres")
+
+    fileprivate static func tls(for mode: Connection.SSLMode) -> PostgresConnection.Configuration.TLS {
         switch mode {
         case .disable:
             return .disable
@@ -113,7 +53,7 @@ public final class PostgresDriver: DatabaseClient {
         }
     }
 
-    private static func insecureClientConfig() -> TLSConfiguration {
+    fileprivate static func insecureClientConfig() -> TLSConfiguration {
         var config = TLSConfiguration.makeClientConfiguration()
         config.certificateVerification = .none
         return config
@@ -137,7 +77,7 @@ public final class PostgresDriver: DatabaseClient {
         }
     }
 
-    private static func render(_ cell: PostgresCell) -> String? {
+    fileprivate static func render(_ cell: PostgresCell) -> String? {
         guard cell.bytes != nil else { return nil }
         if let b = try? cell.decode(Bool.self) { return String(b) }
         if let i = try? cell.decode(Int64.self) { return String(i) }
@@ -154,5 +94,82 @@ public final class PostgresDriver: DatabaseClient {
             return "\\x" + hex
         }
         return nil
+    }
+}
+
+// MARK: - Session
+
+private actor Session {
+    private let connection: Connection
+    private let password: String?
+    private var postgresConnection: PostgresConnection?
+    private var group: EventLoopGroup?
+
+    init(connection: Connection, password: String?) {
+        self.connection = connection
+        self.password = password
+    }
+
+    func connect() async throws {
+        if postgresConnection != nil { return }
+
+        let database = connection.database.isEmpty ? nil : connection.database
+        let config = PostgresConnection.Configuration(
+            host: connection.host,
+            port: connection.port,
+            username: connection.user,
+            password: password,
+            database: database,
+            tls: PostgresDriver.tls(for: connection.sslMode)
+        )
+
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        do {
+            let conn = try await PostgresConnection.connect(
+                on: group.next(),
+                configuration: config,
+                id: 1,
+                logger: PostgresDriver.logger
+            )
+            _ = try await conn.query(PostgresQuery(unsafeSQL: "SELECT 1"), logger: PostgresDriver.logger)
+            postgresConnection = conn
+            self.group = group
+        } catch {
+            try? await group.shutdownGracefully()
+            throw PostgresDriver.translate(error)
+        }
+    }
+
+    func query(_ sql: String) async throws -> QueryResult {
+        guard let conn = postgresConnection else {
+            throw DatabaseError.notConnected
+        }
+
+        let rows: PostgresRowSequence
+        do {
+            rows = try await conn.query(PostgresQuery(unsafeSQL: sql), logger: PostgresDriver.logger)
+        } catch {
+            throw PostgresDriver.translate(error)
+        }
+
+        var columns: [String] = []
+        var rendered: [[String?]] = []
+        for try await row in rows {
+            if columns.isEmpty {
+                columns = row.map(\.columnName)
+            }
+            rendered.append(row.map(PostgresDriver.render))
+        }
+
+        return QueryResult(columns: columns, rows: rendered)
+    }
+
+    func close() async {
+        let conn = postgresConnection
+        let group = self.group
+        postgresConnection = nil
+        self.group = nil
+        try? await conn?.close()
+        try? await group?.shutdownGracefully()
     }
 }

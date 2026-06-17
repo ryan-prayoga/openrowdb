@@ -2,6 +2,12 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3] — 2026-06-17
+
+### Fixed
+
+- **Workspace tab autosave crash** — stop cancelling debounced `Task.sleep` in `schedulePersist` (macOS 26 `swift_task_dealloc` abort when typing in SQL editor)
+
 ## [0.1.2] — 2026-06-17
 
 ### Fixed

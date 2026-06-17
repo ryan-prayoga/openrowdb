@@ -38,8 +38,11 @@ final class WorkspaceTabsState {
     @ObservationIgnored
     private var restoredConnections: Set<UUID> = []
 
+    /// Debounce generation per connection. Newer schedules bump the counter so
+    /// older sleep tasks exit without persisting — never cancel a sleeping Task
+    /// (Task.cancel during Task.sleep aborts on macOS 26 / Swift 6).
     @ObservationIgnored
-    private var persistTasks: [UUID: Task<Void, Never>] = [:]
+    private var persistGeneration: [UUID: UInt64] = [:]
 
     @ObservationIgnored
     var sessionStore: WorkspaceSessionStore?
@@ -128,11 +131,12 @@ final class WorkspaceTabsState {
     }
 
     func schedulePersist(for connectionID: UUID) {
-        persistTasks[connectionID]?.cancel()
-        persistTasks[connectionID] = Task { [weak self] in
+        let generation = (persistGeneration[connectionID] ?? 0) + 1
+        persistGeneration[connectionID] = generation
+        Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.persistNow(for: connectionID)
+            guard let self, self.persistGeneration[connectionID] == generation else { return }
+            self.persistNow(for: connectionID)
         }
     }
 

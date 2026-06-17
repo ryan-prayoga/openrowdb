@@ -1,12 +1,13 @@
+import { useState } from "react";
 import { TiltedCard } from "../bits/cards";
 
 /*
  * ScreenshotFrame — a tilted glass window frame sized 16:10 for a real app
- * screenshot. Until real PNGs exist in the repo, it renders a labelled
- * placeholder preview. Drop a screenshot in by passing `src`.
+ * screenshot. Pass `src` to show a real capture; if the file is missing (or
+ * fails to load) it gracefully falls back to a labelled placeholder preview.
  *
- * TODO(screenshots): export real OpenrowDB captures (Browse grid / Query
- * editor / Structure editor) and pass them as `src`.
+ * To add real shots: drop PNGs into web/public/shots/ (browse.png, query.png,
+ * structure.png) — Showcase already points each frame at them.
  */
 export function ScreenshotFrame({
   title,
@@ -19,6 +20,9 @@ export function ScreenshotFrame({
   src?: string;
   accent?: string;
 }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = src && !failed;
+
   return (
     <TiltedCard className="h-full">
       <figure className="glass glass-hover h-full overflow-hidden rounded-[var(--radius-glass)]">
@@ -30,10 +34,16 @@ export function ScreenshotFrame({
           <span className="ml-2 font-mono text-[10px] text-faint">{title}</span>
         </div>
 
-        {/* body — real screenshot if provided, else placeholder preview */}
+        {/* body — real screenshot if available, else placeholder preview */}
         <div className="relative aspect-[16/10] w-full overflow-hidden">
-          {src ? (
-            <img src={src} alt={caption} className="h-full w-full object-cover" />
+          {showImage ? (
+            <img
+              src={src}
+              alt={caption}
+              loading="lazy"
+              onError={() => setFailed(true)}
+              className="h-full w-full object-cover object-top"
+            />
           ) : (
             <div
               className="absolute inset-0"

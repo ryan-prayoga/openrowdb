@@ -2,6 +2,12 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.7] — 2026-06-17
+
+### Fixed
+
+- **Sidebar tree cross-wire** — when two connections share the same name (e.g. two "chinook" connections to different databases), expanding/collapsing one would toggle the other instead. Root cause: `@State` per-view `Bool` leaked between sibling `ForEach` elements during SwiftUI `List` + `.sidebar` style cell recycling. Fix: lifted expand/collapse state to a centralized `Set<UUID>` in `ConnectionsSidebar`, passed down as `@Binding<Bool>` to each `ConnectionNode`.
+
 ## [0.1.6] — 2026-06-17
 
 ### Fixed

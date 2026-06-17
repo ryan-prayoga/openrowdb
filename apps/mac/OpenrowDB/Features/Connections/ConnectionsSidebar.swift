@@ -15,6 +15,7 @@ struct ConnectionsSidebar: View {
 
     @State private var pendingDelete: Connection?
     @State private var search = ""
+    @State private var expandedConnections: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,6 +69,13 @@ struct ConnectionsSidebar: View {
                     ForEach(manager.connections) { connection in
                         ConnectionNode(
                             connection: connection,
+                            isExpanded: Binding(
+                                get: { expandedConnections.contains(connection.id) },
+                                set: { isExp in
+                                    if isExp { expandedConnections.insert(connection.id) }
+                                    else { expandedConnections.remove(connection.id) }
+                                }
+                            ),
                             search: search,
                             selection: $selection,
                             editingConnection: $editingConnection,
@@ -101,12 +109,12 @@ private struct ConnectionNode: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connection: Connection
+    @Binding var isExpanded: Bool
     let search: String
     @Binding var selection: UUID?
     @Binding var editingConnection: Connection?
     @Binding var pendingDelete: Connection?
 
-    @State private var expanded = false
     @State private var databases: [String] = []
     @State private var loading = false
     @State private var loadError: String?
@@ -120,7 +128,7 @@ private struct ConnectionNode: View {
     var body: some View {
         Group {
             row
-            if expanded {
+            if isExpanded {
                 children
             }
         }
@@ -128,7 +136,7 @@ private struct ConnectionNode: View {
 
     private var row: some View {
         HStack(spacing: 6) {
-            DisclosureChevron(expanded: expanded, tint: .secondary) { toggle() }
+            DisclosureChevron(expanded: isExpanded, tint: .secondary) { toggle() }
             StatusDot(status: status)
             VStack(alignment: .leading, spacing: 1) {
                 Text(connection.name)
@@ -170,7 +178,7 @@ private struct ConnectionNode: View {
             Button("Delete", role: .destructive) { pendingDelete = connection }
         }
         .onChange(of: refreshCoordinator.signal(for: connection.id)) { _, _ in
-            guard status == .connected, expanded else { return }
+            guard status == .connected, isExpanded else { return }
             Task { await loadDatabases() }
         }
     }
@@ -202,14 +210,14 @@ private struct ConnectionNode: View {
     }
 
     private func toggle() {
-        expanded.toggle()
-        guard expanded else { return }
+        isExpanded.toggle()
+        guard isExpanded else { return }
         Task { await connectAndLoad() }
     }
 
     private func connectAndExpand() async {
         await connectAndLoad()
-        expanded = true
+        isExpanded = true
     }
 
     private func connectAndLoad() async {

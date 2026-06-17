@@ -80,3 +80,10 @@ target/
 apps/windows/**/bin/
 apps/windows/**/obj/
 apps/windows/**/.vs/
+
+# QC / testing artifacts
+.playwright-mcp/
+qc-*.png
+
+# macOS app dist zips (built locally by release scripts)
+apps/mac/dist/*.zip

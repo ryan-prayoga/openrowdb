@@ -1,0 +1,38 @@
+<Window
+    x:Class="OpenrowDB.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="48">
+        <StackPanel
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="12">
+
+            <FontIcon
+                Glyph="&#xE7C3;"
+                FontSize="64"
+                Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                HorizontalAlignment="Center" />
+
+            <TextBlock
+                Text="Connect to a database"
+                Style="{ThemeResource TitleTextBlockStyle}"
+                HorizontalAlignment="Center" />
+
+            <TextBlock
+                Text="Windows port initialized — WinUI 3 (Fluent Design).&#x0a;Core FFI wiring and workspace UI come next."
+                Style="{ThemeResource BodyTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextAlignment="Center"
+                TextWrapping="Wrap"
+                MaxWidth="480" />
+
+            <TextBlock
+                Text="Stack: WinUI 3 + .NET 9 + openrowdb-core (Rust, via FFI later)"
+                Style="{ThemeResource CaptionTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -45,15 +45,32 @@ public final class PostgresDriver: DatabaseClient, @unchecked Sendable {
         switch mode {
         case .disable:
             return .disable
-        case .prefer, .require:
-            guard let context = try? NIOSSLContext(configuration: insecureClientConfig()) else {
+        case .prefer:
+            // Opportunistic TLS — encrypt if possible, but don't verify the cert.
+            // Appropriate for local/dev databases where the server may use a self-signed cert.
+            guard let context = try? NIOSSLContext(configuration: Self.tlsConfig(verify: false)) else {
                 return .disable
             }
-            return mode == .prefer ? .prefer(context) : .require(context)
+            return .prefer(context)
+        case .require:
+            // Strict TLS — verify the server certificate against system trust roots.
+            // Falls back to no-cert-verification only if system roots can't be loaded.
+            guard let context = try? NIOSSLContext(configuration: Self.tlsConfig(verify: true)) else {
+                guard let fallback = try? NIOSSLContext(configuration: Self.tlsConfig(verify: false)) else {
+                    return .disable
+                }
+                return .require(fallback)
+            }
+            return .require(context)
         }
     }
 
-    fileprivate static func insecureClientConfig() -> TLSConfiguration {
+    /// Build a TLS configuration. When `verify` is true, uses system trust roots
+    /// for full certificate verification (protects against MITM attacks).
+    fileprivate static func tlsConfig(verify: Bool) -> TLSConfiguration {
+        if verify {
+            return TLSConfiguration.makeClientConfiguration()
+        }
         var config = TLSConfiguration.makeClientConfiguration()
         config.certificateVerification = .none
         return config

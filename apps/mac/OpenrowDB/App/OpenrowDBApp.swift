@@ -95,10 +95,13 @@ struct OpenrowDBApp: App {
         do {
             store = try ConnectionStore()
         } catch {
-            let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("OpenrowDB/connections.json")
-            // Force is safe: temporaryDirectory + explicit path cannot fail validation here.
-            store = try! ConnectionStore(fileURL: fallback)
+            do {
+                let fallback = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("OpenrowDB/connections.json")
+                store = try ConnectionStore(fileURL: fallback)
+            } catch {
+                fatalError("OpenrowDB: cannot initialize connection store in Application Support or temp directory: \(error)")
+            }
         }
         return ConnectionManager(store: store, secrets: KeychainSecretStore())
     }
@@ -110,9 +113,13 @@ struct OpenrowDBApp: App {
         do {
             return try QueryHistoryStore()
         } catch {
-            let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("OpenrowDB/history.sqlite")
-            return try! QueryHistoryStore(fileURL: fallback)
+            do {
+                let fallback = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("OpenrowDB/history.sqlite")
+                return try QueryHistoryStore(fileURL: fallback)
+            } catch {
+                fatalError("OpenrowDB: cannot initialize query history in Application Support or temp directory: \(error)")
+            }
         }
     }
 
@@ -121,9 +128,13 @@ struct OpenrowDBApp: App {
         do {
             return try WorkspaceSessionStore()
         } catch {
-            let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("OpenrowDB/workspace.json")
-            return try! WorkspaceSessionStore(fileURL: fallback)
+            do {
+                let fallback = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("OpenrowDB/workspace.json")
+                return try WorkspaceSessionStore(fileURL: fallback)
+            } catch {
+                fatalError("OpenrowDB: cannot initialize workspace store in Application Support or temp directory: \(error)")
+            }
         }
     }
 
@@ -132,9 +143,13 @@ struct OpenrowDBApp: App {
         do {
             return try QuerySnippetStore()
         } catch {
-            let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("OpenrowDB/snippets.sqlite")
-            return try! QuerySnippetStore(fileURL: fallback)
+            do {
+                let fallback = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("OpenrowDB/snippets.sqlite")
+                return try QuerySnippetStore(fileURL: fallback)
+            } catch {
+                fatalError("OpenrowDB: cannot initialize snippet store in Application Support or temp directory: \(error)")
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-import { Logo } from "../ui/primitives";
+import { Ext, Logo } from "../ui/primitives";
 import { links } from "../../data/platforms";
 
 export function Footer() {
@@ -19,15 +19,15 @@ export function Footer() {
           <a href="/changelog" className="text-muted transition-colors hover:text-fg">
             Changelog
           </a>
-          <a href={links.releases} className="text-muted transition-colors hover:text-fg">
+          <Ext href={links.releases} className="text-muted transition-colors hover:text-fg">
             Releases
-          </a>
-          <a href={links.repo} className="text-muted transition-colors hover:text-fg">
+          </Ext>
+          <Ext href={links.repo} className="text-muted transition-colors hover:text-fg">
             GitHub
-          </a>
-          <a href={links.x} className="text-muted transition-colors hover:text-fg">
+          </Ext>
+          <Ext href={links.x} className="text-muted transition-colors hover:text-fg">
             X / Twitter
-          </a>
+          </Ext>
         </div>
       </div>
 

@@ -1,0 +1,16 @@
+[package]
+name = "openrowdb-core"
+description = "Headless database client core — drivers, SQL dialect, parsing, export"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+# Driver deps land here as we port from apps/mac/Sources/OpenrowDBCore:
+# tokio-postgres, mysql_async, sqlx, etc.
+
+[dev-dependencies]
+tokio = { workspace = true }

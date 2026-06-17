@@ -133,8 +133,7 @@ final class WorkspaceTabsState {
     func schedulePersist(for connectionID: UUID) {
         let generation = (persistGeneration[connectionID] ?? 0) + 1
         persistGeneration[connectionID] = generation
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(400)) { [weak self] in
             guard let self, self.persistGeneration[connectionID] == generation else { return }
             self.persistNow(for: connectionID)
         }

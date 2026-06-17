@@ -30,7 +30,7 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
+# Package.resolved — committed for reproducible CI builds
 Packages/
 *.xcodeproj
 !apps/mac/OpenrowDB.xcodeproj
@@ -71,3 +71,12 @@ iOSInjectionProject/
 .opencode
 .aider*
 .cursor/
+
+# Rust
+target/
+**/*.rs.bk
+
+# .NET / WinUI
+apps/windows/**/bin/
+apps/windows/**/obj/
+apps/windows/**/.vs/

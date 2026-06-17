@@ -59,7 +59,12 @@ export function Btn({
       ? "text-white shadow-[0_8px_30px_-8px_rgba(91,124,250,0.7)] hover:shadow-[0_10px_40px_-6px_rgba(91,124,250,0.9)] hover:-translate-y-0.5"
       : "border border-hair bg-glass text-fg backdrop-blur hover:border-hair-2 hover:-translate-y-0.5";
   return (
-    <a href={href} className={`${base} ${styles} ${className}`} {...rest}>
+    <a
+      href={href}
+      className={`${base} ${styles} ${className}`}
+      {...(href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      {...rest}
+    >
       {variant === "primary" && (
         <span
           className="absolute inset-0 -z-10 rounded-xl"
@@ -110,6 +115,20 @@ export function Section({
     <section id={id} className={`relative mx-auto w-full max-w-6xl px-6 py-20 sm:py-28 ${className}`}>
       {children}
     </section>
+  );
+}
+
+/* ── Ext — external link with safe rel attributes ─────────────────────────── */
+export function Ext({
+  href,
+  children,
+  className = "",
+  ...rest
+}: { href: string; children: ReactNode; className?: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className} {...rest}>
+      {children}
+    </a>
   );
 }
 

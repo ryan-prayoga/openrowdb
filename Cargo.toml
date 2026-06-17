@@ -1,0 +1,19 @@
+# Cargo workspace — shared Rust core + Linux shell.
+# macOS stays on SwiftPM (apps/mac). Windows uses WinUI 3 (apps/windows).
+[workspace]
+resolver = "2"
+members = [
+  "crates/openrowdb-core",
+  "apps/linux",
+]
+exclude = ["apps/mac"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/ryan-prayoga/openrowdb"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+thiserror = "2"

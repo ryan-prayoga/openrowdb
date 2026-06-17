@@ -180,7 +180,7 @@ export default function Aurora({
       if (gl.canvas.parentNode === el) el.removeChild(gl.canvas);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
-  }, [reduced, amplitude, blend]);
+  }, [reduced, amplitude, blend, colorStops]);
 
   return <div ref={ctn} className={`aurora-fallback h-full w-full ${className}`} />;
 }

@@ -1,4 +1,4 @@
-import { Reveal, Section, Eyebrow } from "../ui/primitives";
+import { Ext, Reveal, Section, Eyebrow } from "../ui/primitives";
 import { links } from "../../data/platforms";
 
 const builtWith = ["Claude Code", "Codex CLI", "Grok", "Hermes Agent"];
@@ -24,18 +24,18 @@ export function OpenSource() {
           </Reveal>
           <Reveal delay={0.15}>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a
+              <Ext
                 href={links.repo}
                 className="inline-flex items-center gap-2 rounded-xl border border-hair bg-glass px-4 py-2.5 text-sm text-fg transition-colors hover:border-accent"
               >
                 ★ Star on GitHub
-              </a>
-              <a
+              </Ext>
+              <Ext
                 href={links.x}
                 className="inline-flex items-center gap-2 rounded-xl border border-hair bg-glass px-4 py-2.5 text-sm text-fg transition-colors hover:border-accent"
               >
                 Follow @txtdrprogrammer
-              </a>
+              </Ext>
             </div>
           </Reveal>
         </div>

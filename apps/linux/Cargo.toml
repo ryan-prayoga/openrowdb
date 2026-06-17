@@ -1,0 +1,17 @@
+[package]
+name = "openrowdb-linux"
+description = "OpenrowDB for Linux — GTK 4 + libadwaita shell"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "openrowdb"
+path = "src/main.rs"
+
+[dependencies]
+openrowdb-core = { path = "../../crates/openrowdb-core" }
+gtk4 = "0.9"
+libadwaita = "0.7"

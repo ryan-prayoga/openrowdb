@@ -1,0 +1,44 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "apps/linux/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "apps/linux/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test --all

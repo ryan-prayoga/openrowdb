@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInView } from "motion/react";
 
 /* ── SplitText — word-by-word rise-in (reactbits-style) ─────────────────── */
@@ -34,28 +34,6 @@ export function SplitText({
       ))}
     </As>
   );
-}
-
-/* ── ShinyText — sweeping highlight across muted text ───────────────────── */
-export function ShinyText({ text, className = "" }: { text: string; className?: string }) {
-  return (
-    <span
-      className={`bg-clip-text text-transparent ${className}`}
-      style={{
-        backgroundImage:
-          "linear-gradient(110deg, var(--color-muted) 35%, #ffffff 50%, var(--color-muted) 65%)",
-        backgroundSize: "200% 100%",
-        animation: "shine 5s linear infinite",
-      }}
-    >
-      {text}
-    </span>
-  );
-}
-
-/* ── GradientText — static indigo→cyan gradient fill ────────────────────── */
-export function GradientText({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <span className={`text-gradient ${className}`}>{children}</span>;
 }
 
 /* ── CountUp — animate 0→N when scrolled into view ──────────────────────── */

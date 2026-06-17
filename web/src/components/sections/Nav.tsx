@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Logo } from "../ui/primitives";
+import { Ext } from "../ui/primitives";
 import { links } from "../../data/platforms";
 
 // Absolute (/#...) so they also work from the /changelog page.
@@ -45,13 +46,13 @@ export function Nav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <a
+          <Ext
             href={links.repo}
             className="hidden rounded-lg px-3 py-1.5 text-sm text-muted transition-colors hover:text-fg sm:block"
           >
             GitHub
-          </a>
-          <a
+          </Ext>
+          <Ext
             href={links.releasesLatest}
             className="relative inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-white"
           >
@@ -60,7 +61,7 @@ export function Nav() {
               style={{ background: "linear-gradient(120deg,#6366f1,#2f6bff 60%,#38e1d6)" }}
             />
             Download
-          </a>
+          </Ext>
 
           {/* Mobile menu toggle */}
           <button
@@ -97,16 +98,27 @@ export function Nav() {
           className="mt-2 w-full max-w-5xl rounded-2xl border border-hair p-2 shadow-[0_24px_80px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl md:hidden"
           style={{ background: "rgba(9, 11, 18, 0.96)" }}
         >
-          {[...navLinks, ["GitHub", links.repo]].map(([label, href]) => (
-            <a
-              key={href}
-              href={href}
-              onClick={() => setOpen(false)}
-              className="block rounded-lg px-4 py-3 text-sm text-muted transition-colors hover:bg-white/[0.05] hover:text-fg"
-            >
-              {label}
-            </a>
-          ))}
+          {[...navLinks, ["GitHub", links.repo]].map(([label, href]) =>
+            href.startsWith("http") ? (
+              <Ext
+                key={href}
+                href={href}
+                onClick={() => setOpen(false)}
+                className="block rounded-lg px-4 py-3 text-sm text-muted transition-colors hover:bg-white/[0.05] hover:text-fg"
+              >
+                {label}
+              </Ext>
+            ) : (
+              <a
+                key={href}
+                href={href}
+                onClick={() => setOpen(false)}
+                className="block rounded-lg px-4 py-3 text-sm text-muted transition-colors hover:bg-white/[0.05] hover:text-fg"
+              >
+                {label}
+              </a>
+            )
+          )}
         </div>
       )}
     </header>

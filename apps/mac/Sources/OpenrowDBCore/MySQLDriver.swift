@@ -36,15 +36,18 @@ public final class MySQLDriver: DatabaseClient, @unchecked Sendable {
 
     // MARK: - Helpers
 
-    /// `disable` → plaintext; `prefer`/`require` → TLS without cert verification (post-v1: verify-full).
+    /// `disable` → plaintext; `prefer` → opportunistic TLS (no cert check);
+    /// `require` → strict TLS with system trust roots (verifies server cert).
     fileprivate static func tls(for mode: Connection.SSLMode) -> TLSConfiguration? {
         switch mode {
         case .disable:
             return nil
-        case .prefer, .require:
+        case .prefer:
             var config = TLSConfiguration.makeClientConfiguration()
             config.certificateVerification = .none
             return config
+        case .require:
+            return TLSConfiguration.makeClientConfiguration()
         }
     }
 

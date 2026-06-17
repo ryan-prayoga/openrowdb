@@ -20,7 +20,7 @@ struct TableDataView: View {
     var onMutated: () -> Void = {}
 
     private static let pageSizeOptions = [50, 100, 200, 500]
-    private static let searchDebounce: Duration = .milliseconds(300)
+    private static let searchDebounceMs: Int = 300
 
     @State private var pageSize = 100
     @State private var page = 0
@@ -604,29 +604,31 @@ struct TableDataView: View {
     private func scheduleSearch() {
         searchGeneration += 1
         let generation = searchGeneration
-        Task {
-            try? await Task.sleep(for: Self.searchDebounce)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.searchDebounceMs)) {
             guard generation == searchGeneration else { return }
             appliedSearch = search
             page = 0
             selectedRowID = nil
-            await loadCount()
-            await loadRows()
+            Task {
+                await loadCount()
+                await loadRows()
+            }
         }
     }
 
     private func scheduleColumnFilter() {
         filterGeneration += 1
         let generation = filterGeneration
-        Task {
-            try? await Task.sleep(for: Self.searchDebounce)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.searchDebounceMs)) {
             guard generation == filterGeneration else { return }
             appliedFilterColumn = filterColumn
             appliedFilterValue = filterValue
             page = 0
             selectedRowID = nil
-            await loadCount()
-            await loadRows()
+            Task {
+                await loadCount()
+                await loadRows()
+            }
         }
     }
 

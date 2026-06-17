@@ -52,14 +52,11 @@ jobs:
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
             ProxyCommand cloudflared access ssh --hostname %h
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
+            StrictHostKeyChecking accept-new
           EOF
 
       - name: Deploy to VPS
         run: |
-          # --delete cleans stale assets but never the releases mirror or
-          # install.sh (re-uploaded right after from the repo copy).
           rsync -az --delete --exclude 'releases/' --exclude 'install.sh' \
             web/dist/ vps:/var/www/openrowdb.ryanprayoga.dev/
           rsync -az apps/mac/scripts/install.sh \
@@ -76,3 +73,9 @@ jobs:
             sleep 3
           done
           echo "::error::site smoke test failed"; exit 1
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          rm -f ~/.ssh/config

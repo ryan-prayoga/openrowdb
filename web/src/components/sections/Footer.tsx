@@ -13,11 +13,11 @@ export function Footer() {
         </div>
 
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-          <a href="#features" className="text-muted transition-colors hover:text-fg">
+          <a href="/#features" className="text-muted transition-colors hover:text-fg">
             Features
           </a>
-          <a href="#install" className="text-muted transition-colors hover:text-fg">
-            Install
+          <a href="/changelog" className="text-muted transition-colors hover:text-fg">
+            Changelog
           </a>
           <a href={links.releases} className="text-muted transition-colors hover:text-fg">
             Releases

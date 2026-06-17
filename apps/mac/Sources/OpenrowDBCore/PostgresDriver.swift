@@ -1,22 +1,29 @@
 // PostgresDriver.swift
 import Foundation
+import Logging
+import NIOCore
+import NIOPosix
 import NIOSSL
 import PostgresNIO
 import Synchronization
 
-/// `DatabaseClient` backed by PostgresNIO's pooled `PostgresClient`.
+/// `DatabaseClient` backed by a single `PostgresConnection` (no connection pool).
 ///
-/// The client requires its `run()` method to be driven by a long-lived task while
-/// connections are leased; we own that task and cancel it on `close()`.
+/// PostgresNIO's pooled `PostgresClient` spins up `ConnectionPool` timer tasks that
+/// crash under Swift 6 on macOS 26 when connect/test/disconnect races occur. A GUI
+/// client only needs one live connection per database, so we mirror `MySQLDriver`:
+/// one NIO event loop, one connection, explicit close.
 public final class PostgresDriver: DatabaseClient {
     private let connection: Connection
     private let password: String?
     private let state = Mutex<State>(State())
 
     private struct State {
-        var client: PostgresClient?
-        var runTask: Task<Void, Never>?
+        var connection: PostgresConnection?
+        var group: EventLoopGroup?
     }
+
+    private static let logger = Logger(label: "com.openrowdb.postgres")
 
     public let dialect: SQLDialect = .postgres
 
@@ -26,49 +33,45 @@ public final class PostgresDriver: DatabaseClient {
     }
 
     public func connect() async throws {
-        if state.withLock({ $0.client != nil }) { return }
+        if state.withLock({ $0.connection != nil }) { return }
 
-        var config = PostgresClient.Configuration(
+        let database = connection.database.isEmpty ? nil : connection.database
+        let config = PostgresConnection.Configuration(
             host: connection.host,
             port: connection.port,
             username: connection.user,
             password: password,
-            database: connection.database,
+            database: database,
             tls: Self.tls(for: connection.sslMode)
         )
-        // GUI sessions are short-lived and explicitly disconnected. Disabling
-        // keep-alive avoids ConnectionPool idle/keep-alive timers that can race
-        // with abrupt Task cancellation during close() (swift_task_dealloc abort).
-        config.options.keepAliveBehavior = nil
-        config.options.minimumConnections = 0
-        config.options.maximumConnections = 2
-        config.options.connectionIdleTimeout = .seconds(120)
 
-        let client = PostgresClient(configuration: config)
-        let runTask = Task.detached(priority: .utility) {
-            await client.run()
-        }
-        state.withLock {
-            $0.client = client
-            $0.runTask = runTask
-        }
-
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         do {
-            _ = try await client.query("SELECT 1")
+            let conn = try await PostgresConnection.connect(
+                on: group.next(),
+                configuration: config,
+                id: 1,
+                logger: Self.logger
+            )
+            _ = try await conn.query(PostgresQuery(unsafeSQL: "SELECT 1"), logger: Self.logger)
+            state.withLock {
+                $0.connection = conn
+                $0.group = group
+            }
         } catch {
-            await close()
+            try? await group.shutdownGracefully()
             throw Self.translate(error)
         }
     }
 
     public func query(_ sql: String) async throws -> QueryResult {
-        guard let client = state.withLock({ $0.client }) else {
+        guard let conn = state.withLock({ $0.connection }) else {
             throw DatabaseError.notConnected
         }
 
         let rows: PostgresRowSequence
         do {
-            rows = try await client.query(PostgresQuery(unsafeSQL: sql))
+            rows = try await conn.query(PostgresQuery(unsafeSQL: sql), logger: Self.logger)
         } catch {
             throw Self.translate(error)
         }
@@ -82,46 +85,31 @@ public final class PostgresDriver: DatabaseClient {
             rendered.append(row.map(Self.render))
         }
 
-        // PostgresClient's async API does not expose the command tag (rows
-        // affected) after iteration. DML without RETURNING leaves rowsAffected nil.
         return QueryResult(columns: columns, rows: rendered)
     }
 
     public func close() async {
-        let task = state.withLock { s -> Task<Void, Never>? in
-            let t = s.runTask
-            s.client = nil
-            s.runTask = nil
-            return t
+        let (conn, group) = state.withLock { s -> (PostgresConnection?, EventLoopGroup?) in
+            let pair = (s.connection, s.group)
+            s.connection = nil
+            s.group = nil
+            return pair
         }
-        guard let task else { return }
-        task.cancel()
-        // Cancellation triggers ConnectionPool.triggerForceShutdown(), but timer
-        // child tasks need a beat to finish. Bounded wait avoids indefinite hang
-        // while letting the pool drain cleanly (prevents runTimer dealloc abort).
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { _ = await task.value }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(750))
-            }
-            _ = await group.next()
-            group.cancelAll()
-        }
+        try? await conn?.close()
+        try? await group?.shutdownGracefully()
     }
 
     // MARK: - Helpers
 
-    /// Maps our `SSLMode` to PostgresNIO TLS. `prefer`/`require` both encrypt;
-    /// neither verifies the server cert yet (verify-full is a post-v1 enhancement),
-    /// matching libpq's default behaviour for these modes against dev servers.
-    private static func tls(for mode: Connection.SSLMode) -> PostgresClient.Configuration.TLS {
+    private static func tls(for mode: Connection.SSLMode) -> PostgresConnection.Configuration.TLS {
         switch mode {
         case .disable:
             return .disable
-        case .prefer:
-            return .prefer(insecureClientConfig())
-        case .require:
-            return .require(insecureClientConfig())
+        case .prefer, .require:
+            guard let context = try? NIOSSLContext(configuration: insecureClientConfig()) else {
+                return .disable
+            }
+            return mode == .prefer ? .prefer(context) : .require(context)
         }
     }
 
@@ -131,16 +119,6 @@ public final class PostgresDriver: DatabaseClient {
         return config
     }
 
-    /// Convert a PostgresNIO error into a `DatabaseError` that carries the real
-    /// server message and SQLSTATE.
-    ///
-    /// PostgresNIO's `PSQLError` deliberately overrides `description` to return
-    /// a generic placeholder ("Generic description to prevent accidental leakage
-    /// of sensitive data") so apps don't accidentally log secrets. We're a GUI
-    /// client where the user *is* the secret-owner, so we read the structured
-    /// `serverInfo` fields directly and fall back to `String(reflecting:)`
-    /// (CustomDebugStringConvertible) only when there's no server response —
-    /// e.g. connection-lost or local config errors.
     static func translate(_ error: any Error) -> DatabaseError {
         guard let psql = error as? PSQLError else {
             return .driver(String(reflecting: error))
@@ -159,15 +137,8 @@ public final class PostgresDriver: DatabaseClient {
         }
     }
 
-    /// Render a cell to a display string.
-    ///
-    /// Typed decoders are tried first because they are OID-gated and only succeed
-    /// for their own column type. `String` is tried LAST: PostgresNIO's `String`
-    /// decoder has a permissive `default` case that converts the raw bytes of *any*
-    /// type to a string (e.g. for `ltree`), which would render a `float8` as binary
-    /// garbage if tried first.
     private static func render(_ cell: PostgresCell) -> String? {
-        guard cell.bytes != nil else { return nil }  // SQL NULL
+        guard cell.bytes != nil else { return nil }
         if let b = try? cell.decode(Bool.self) { return String(b) }
         if let i = try? cell.decode(Int64.self) { return String(i) }
         if let i = try? cell.decode(Int32.self) { return String(i) }

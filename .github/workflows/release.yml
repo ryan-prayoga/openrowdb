@@ -73,6 +73,7 @@ jobs:
           files: |
             apps/mac/dist/OpenrowDB-${{ steps.ver.outputs.version }}.zip
             apps/mac/dist/OpenrowDB-${{ steps.ver.outputs.version }}.dmg
-          generate_release_notes: true
+          body_path: apps/mac/release-notes/v${{ steps.ver.outputs.version }}.md
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

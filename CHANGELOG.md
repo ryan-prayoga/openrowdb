@@ -2,6 +2,12 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] — 2026-06-17
+
+### Fixed
+
+- **Postgres connect crash** — replace `PostgresClient` connection pool with a single `PostgresConnection` (no `ConnectionPool.runTimer`, no more abort on connect/test/disconnect)
+
 ## [0.1.1] — 2026-06-17
 
 ### Fixed

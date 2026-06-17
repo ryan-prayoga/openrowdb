@@ -1,21 +1,25 @@
 import { Reveal, Section, Eyebrow } from "../ui/primitives";
 import { ScreenshotFrame } from "../ui/ScreenshotFrame";
 
+// Drop real PNGs into web/public/shots/ to replace the placeholders.
 const shots = [
   {
     title: "Browse · users",
     caption: "Sortable, NULL-aware results grid with row inspector and FK navigation.",
     accent: "#2f6bff",
+    src: "/shots/browse.png",
   },
   {
     title: "⌘ SQL editor",
     caption: "Multi-statement editor with history, autocomplete, EXPLAIN and exports.",
     accent: "#38e1d6",
+    src: "/shots/query.png",
   },
   {
     title: "Structure editor",
     caption: "Edit columns and types, transfer databases, copy rows as INSERT / UPDATE.",
     accent: "#6366f1",
+    src: "/shots/structure.png",
   },
 ];
 

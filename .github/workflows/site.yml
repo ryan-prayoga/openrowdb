@@ -1,0 +1,78 @@
+name: Deploy site
+
+# Build the Vite landing site (web/) and deploy it to the VPS behind the
+# Cloudflare tunnel. Static files are served live by Caddy — no reload needed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "apps/mac/scripts/install.sh"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build site
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Configure SSH (Cloudflare tunnel)
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${{ secrets.VPS_SSH_HOST }}
+            User ${{ secrets.VPS_SSH_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ProxyCommand cloudflared access ssh --hostname %h
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+
+      - name: Deploy to VPS
+        run: |
+          # --delete cleans stale assets but never the releases mirror or
+          # install.sh (re-uploaded right after from the repo copy).
+          rsync -az --delete --exclude 'releases/' --exclude 'install.sh' \
+            web/dist/ vps:/var/www/openrowdb.ryanprayoga.dev/
+          rsync -az apps/mac/scripts/install.sh \
+            vps:/var/www/openrowdb.ryanprayoga.dev/install.sh
+          ssh vps 'chmod 755 /var/www/openrowdb.ryanprayoga.dev/install.sh'
+
+      - name: Smoke test
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' https://openrowdb.ryanprayoga.dev/ || true)
+            inst=$(curl -sS -o /dev/null -w '%{http_code}' https://openrowdb.ryanprayoga.dev/install.sh || true)
+            echo "index=$code install.sh=$inst"
+            [ "$code" = "200" ] && [ "$inst" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "::error::site smoke test failed"; exit 1

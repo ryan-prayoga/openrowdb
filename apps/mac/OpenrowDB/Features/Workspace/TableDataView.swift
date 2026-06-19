@@ -39,12 +39,15 @@ struct TableDataView: View {
     @State private var search = ""
     @State private var appliedSearch = ""
     @State private var searchGeneration: UInt64 = 0
+    @State private var searchExpanded = false
+    @FocusState private var searchFocused: Bool
 
     @State private var filterColumn = ""
     @State private var filterValue = ""
     @State private var appliedFilterColumn = ""
     @State private var appliedFilterValue = ""
     @State private var filterGeneration: UInt64 = 0
+    @State private var showFilterPopover = false
 
     // Per-loader generation tokens: each load increments its own counter and
     // only commits if still current, so an out-of-order completion from an
@@ -266,50 +269,60 @@ struct TableDataView: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search rows", text: $search)
-                    .textFieldStyle(.plain)
-                if !search.isEmpty {
-                    Button { search = "" } label: {
+        HStack(spacing: 8) {
+            // Search: collapsed to icon, expands on click
+            if searchExpanded {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).imageScale(.small)
+                    TextField("Search rows", text: $search)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                        .frame(minWidth: 100, maxWidth: 200)
+                        .onKeyPress(.escape) {
+                            search = ""
+                            collapseSearch()
+                            return .handled
+                        }
+                    Button { search = ""; collapseSearch() } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(.quaternary, in: .rect(cornerRadius: 7))
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity),
+                    removal: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity)
+                ))
+                .onAppear { searchFocused = true }
+                .onChange(of: searchFocused) { _, focused in
+                    if !focused, search.isEmpty { collapseSearch() }
+                }
+            } else {
+                Button {
+                    withAnimation(.spring(duration: 0.25, bounce: 0.1)) {
+                        searchExpanded = true
+                    }
+                } label: {
+                    Image(systemName: "magnifyingglass").frame(width: 16, height: 16)
+                }
+                .help("Search rows")
+                .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(.quaternary, in: .rect(cornerRadius: 7))
-            .frame(maxWidth: 280)
 
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
-                Picker("Column", selection: $filterColumn) {
-                    Text("Column").tag("")
-                    ForEach(columns, id: \.name) { col in
-                        Text(col.name).tag(col.name)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 120)
-                TextField("Filter value", text: $filterValue)
-                    .textFieldStyle(.plain)
-                    .disabled(filterColumn.isEmpty)
-                if !filterValue.isEmpty || !filterColumn.isEmpty {
-                    Button {
-                        filterColumn = ""
-                        filterValue = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                }
+            // Filter: single button, blue when active, popover on click
+            Button {
+                showFilterPopover = true
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .frame(width: 16, height: 16)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(.quaternary, in: .rect(cornerRadius: 7))
-            .frame(maxWidth: 320)
+            .foregroundStyle(isColumnFiltering ? Color.accentColor : .primary)
+            .help(isColumnFiltering ? "Filter: \(appliedFilterColumn) = \"\(appliedFilterValue)\"" : "Filter rows by column")
+            .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
+                filterPopover
+            }
 
             Spacer()
 
@@ -327,20 +340,55 @@ struct TableDataView: View {
                 } else {
                     Button { beginAddRow() } label: { Label("Add Row", systemImage: "plus") }
                         .help("Insert a new row")
-                    Button { beginEditRow() } label: { Label("Edit", systemImage: "pencil") }
-                        .labelStyle(.iconOnly)
-                        .disabled(selectedRowID == nil || !canEditRows)
-                        .help(rowActionHelp("Edit selected row"))
-                    Button { pendingDeleteRow = selectedRowID } label: { Label("Delete", systemImage: "trash") }
-                        .labelStyle(.iconOnly)
-                        .disabled(selectedRowID == nil || !canEditRows)
-                        .help(rowActionHelp("Delete selected row"))
+                    Button { beginEditRow() } label: {
+                        Image(systemName: "pencil").frame(width: 16, height: 16)
+                    }
+                    .disabled(selectedRowID == nil || !canEditRows)
+                    .help(rowActionHelp("Edit selected row"))
+                    Button { pendingDeleteRow = selectedRowID } label: {
+                        Image(systemName: "trash").frame(width: 16, height: 16)
+                    }
+                    .disabled(selectedRowID == nil || !canEditRows)
+                    .help(rowActionHelp("Delete selected row"))
                 }
             }
         }
         .buttonStyle(.glass)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private var filterPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Filter").font(.headline)
+            Picker("Column", selection: $filterColumn) {
+                Text("Select column…").tag("")
+                ForEach(columns, id: \.name) { Text($0.name).tag($0.name) }
+            }
+            .labelsHidden()
+            .frame(width: 200)
+            TextField("Value", text: $filterValue)
+                .textFieldStyle(.roundedBorder)
+                .disabled(filterColumn.isEmpty)
+                .frame(width: 200)
+            if isColumnFiltering {
+                Button("Clear filter") {
+                    filterColumn = ""
+                    filterValue = ""
+                    showFilterPopover = false
+                }
+                .foregroundStyle(.red)
+            }
+        }
+        .padding(16)
+        .buttonStyle(.glass)
+    }
+
+    private func collapseSearch() {
+        withAnimation(.spring(duration: 0.25, bounce: 0.1)) {
+            searchExpanded = false
+        }
+        searchFocused = false
     }
 
     // MARK: - Pagination
@@ -359,52 +407,58 @@ struct TableDataView: View {
     }
 
     private var paginationBar: some View {
-        HStack(spacing: 12) {
+        ViewThatFits(in: .horizontal) {
+            // Full: nav + page label + jump + of N + range + spacer + picker + inspector
+            HStack(spacing: 8) {
+                paginationNavButtons
+                if totalRows != nil {
+                    Text("Page").font(.callout).foregroundStyle(.secondary)
+                    PageJumpField(page: $page, totalPages: totalPages)
+                    Text("of \(totalPages)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                }
+                Text(rangeLabel).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                if loadingRows { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                Picker("Rows", selection: $pageSize) {
+                    ForEach(Self.pageSizeOptions, id: \.self) { Text("\($0) / page").tag($0) }
+                }
+                .labelsHidden().frame(width: 110)
+                paginationInspectorButton
+            }
+            // Compact: drop "Page" label + picker
+            HStack(spacing: 6) {
+                paginationNavButtons
+                if totalRows != nil {
+                    PageJumpField(page: $page, totalPages: totalPages)
+                    Text("/\(totalPages)  \(rangeLabel)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                } else {
+                    Text(rangeLabel).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                }
+                if loadingRows { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                paginationInspectorButton
+            }
+        }
+        .buttonStyle(.glass)
+        .padding(.leading, leadingInset + 12)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var paginationNavButtons: some View {
+        HStack(spacing: 4) {
             Button { page -= 1 } label: { Label("Previous", systemImage: "chevron.left") }
                 .disabled(page == 0 || loadingRows)
                 .labelStyle(.iconOnly)
-
             Button { page += 1 } label: { Label("Next", systemImage: "chevron.right") }
                 .disabled(!hasNextPage || loadingRows)
                 .labelStyle(.iconOnly)
-
-            if totalRows != nil {
-                Text("Page")
-                    .font(.callout).foregroundStyle(.secondary)
-                PageJumpField(page: $page, totalPages: totalPages)
-                Text("of \(totalPages)")
-                    .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            }
-
-            Text(rangeLabel)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-
-            if loadingRows {
-                ProgressView().controlSize(.small)
-            }
-
-            Spacer()
-
-            Picker("Rows", selection: $pageSize) {
-                ForEach(Self.pageSizeOptions, id: \.self) { size in
-                    Text("\(size) / page").tag(size)
-                }
-            }
-            .labelsHidden()
-            .frame(width: 110)
-
-            Button {
-                showRowInspector.toggle()
-            } label: {
-                Image(systemName: "sidebar.trailing")
-            }
-            .help("Toggle row detail")
         }
-        .buttonStyle(.glass)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+    }
+
+    private var paginationInspectorButton: some View {
+        Button { showRowInspector.toggle() } label: { Image(systemName: "sidebar.trailing") }
+            .help("Toggle row detail")
     }
 
     private var rangeLabel: String {
@@ -584,6 +638,7 @@ struct TableDataView: View {
         primaryKeys = []
         search = ""
         appliedSearch = ""
+        searchExpanded = false
         filterColumn = ""
         filterValue = ""
         appliedFilterColumn = ""

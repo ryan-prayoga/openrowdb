@@ -15,7 +15,6 @@ struct ConnectionsSidebar: View {
 
     @State private var pendingDelete: Connection?
     @State private var search = ""
-    @State private var expandedConnections: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,10 +54,6 @@ struct ConnectionsSidebar: View {
     }
 
     private var list: some View {
-        // No List(selection:) — each ConnectionNode is a single List row (header
-        // + its database subtree), so the built-in highlight would paint the
-        // whole subtree blue. Selection is driven by tap and the connection
-        // header highlights itself.
         List {
             Section {
                 if manager.connections.isEmpty {
@@ -69,13 +64,6 @@ struct ConnectionsSidebar: View {
                     ForEach(manager.connections) { connection in
                         ConnectionNode(
                             connection: connection,
-                            isExpanded: Binding(
-                                get: { expandedConnections.contains(connection.id) },
-                                set: { isExp in
-                                    if isExp { expandedConnections.insert(connection.id) }
-                                    else { expandedConnections.remove(connection.id) }
-                                }
-                            ),
                             search: search,
                             selection: $selection,
                             editingConnection: $editingConnection,
@@ -98,23 +86,23 @@ struct ConnectionsSidebar: View {
                 }
             }
         }
+        .transaction { $0.disablesAnimations = true }
         .listStyle(.sidebar)
     }
 }
 
 // MARK: - Connection node
 
-/// A connection row plus, when expanded and connected, its database children.
 private struct ConnectionNode: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connection: Connection
-    @Binding var isExpanded: Bool
     let search: String
     @Binding var selection: UUID?
     @Binding var editingConnection: Connection?
     @Binding var pendingDelete: Connection?
 
+    @State private var expanded = false
     @State private var databases: [String] = []
     @State private var loading = false
     @State private var loadError: String?
@@ -126,59 +114,54 @@ private struct ConnectionNode: View {
     private var isSelected: Bool { selection == connection.id }
 
     var body: some View {
-        Group {
-            row
-            if isExpanded {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                StatusDot(status: status)
+                    .frame(width: 8)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(connection.name)
+                        .foregroundStyle(.primary)
+                        .fontWeight(isSelected ? .medium : .regular)
+                    Text("\(connection.driver.rawValue) · \(connection.host)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .onTapGesture(count: 2) {
+                expanded.toggle()
+                selection = connection.id
+                guard status != .connecting, status != .connected else { return }
+                Task { await connectAndExpand() }
+            }
+            .simultaneousGesture(TapGesture(count: 1).onEnded {
+                if selection != connection.id { selection = connection.id }
+            })
+            .contextMenu {
+                if status == .connected {
+                    Button("Disconnect") { Task { await manager.disconnect(connection.id) } }
+                    Button("Refresh") { refreshCoordinator.refresh(connectionID: connection.id) }
+                } else {
+                    Button("Connect") { Task { await connectAndExpand() } }
+                        .disabled(status == .connecting)
+                }
+                Button("Edit…") { editingConnection = connection }
+                Divider()
+                Button("Delete", role: .destructive) { pendingDelete = connection }
+            }
+            if expanded {
                 children
+                    .padding(.leading, 20)
             }
         }
-    }
-
-    private var row: some View {
-        HStack(spacing: 6) {
-            DisclosureChevron(expanded: isExpanded, tint: .secondary) { toggle() }
-            StatusDot(status: status)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(connection.name)
-                    .foregroundStyle(.primary)
-                    .fontWeight(isSelected ? .medium : .regular)
-                Text("\(connection.driver.rawValue) · \(connection.host)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(.primary.opacity(0.07))
-            }
-        }
-        .contentShape(.rect)
-        .onTapGesture(count: 2) {
-            selection = connection.id
-            guard status != .connecting, status != .connected else { return }
-            Task { await connectAndExpand() }
-        }
-        .simultaneousGesture(TapGesture(count: 1).onEnded {
-            if selection != connection.id { selection = connection.id }
-        })
-        .contextMenu {
-            if status == .connected {
-                Button("Disconnect") { Task { await manager.disconnect(connection.id) } }
-                Button("Refresh") { refreshCoordinator.refresh(connectionID: connection.id) }
-            } else {
-                Button("Connect") { Task { await connectAndExpand() } }
-                    .disabled(status == .connecting)
-            }
-            Button("Edit…") { editingConnection = connection }
-            Divider()
-            Button("Delete", role: .destructive) { pendingDelete = connection }
+        .listRowInsets(EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 4))
+        .onChange(of: expanded) { _, isNowExpanded in
+            guard isNowExpanded else { return }
+            Task { await connectAndLoad() }
         }
         .onChange(of: refreshCoordinator.signal(for: connection.id)) { _, _ in
-            guard status == .connected, isExpanded else { return }
+            guard status == .connected, expanded else { return }
             Task { await loadDatabases() }
         }
     }
@@ -209,15 +192,9 @@ private struct ConnectionNode: View {
         }
     }
 
-    private func toggle() {
-        isExpanded.toggle()
-        guard isExpanded else { return }
-        Task { await connectAndLoad() }
-    }
-
     private func connectAndExpand() async {
         await connectAndLoad()
-        isExpanded = true
+        expanded = true
     }
 
     private func connectAndLoad() async {
@@ -301,17 +278,20 @@ private struct DatabaseNode: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             Button(action: toggle) {
                 TreeRow(level: 1) {
                     ChevronGlyph(expanded: expanded)
-                    Image(systemName: "cylinder.split.1x2").foregroundStyle(.secondary).imageScale(.small)
+                    Image(systemName: "cylinder")
+                        .foregroundStyle(.secondary)
+                        .imageScale(.small)
                     Text(database)
                     Spacer(minLength: 0)
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
             .contextMenu {
                 if !isReadOnly {
                     Button("New Table…") {
@@ -327,7 +307,6 @@ private struct DatabaseNode: View {
                     }
                 }
             }
-
             if expanded { children }
         }
         .confirmationDialog(
@@ -387,8 +366,11 @@ private struct DatabaseNode: View {
         tableRow(table, level: level)
         if showColumns(for: table) {
             ForEach(matchingColumns(of: table)) { column in
-                TreeRow(level: level + 1) {
-                    Image(systemName: "tablecells.badge.ellipsis").foregroundStyle(.tertiary).imageScale(.small)
+                TreeRow(level: level + 2) {
+                    Image(systemName: columnIcon(for: column.type))
+                        .foregroundStyle(.tertiary)
+                        .imageScale(.small)
+                        .frame(width: 12)
                     Text(column.name).font(.callout)
                     Text(column.type).font(.caption).foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
@@ -565,6 +547,20 @@ private struct DatabaseNode: View {
     private func matches(_ name: String) -> Bool {
         name.localizedCaseInsensitiveContains(search)
     }
+
+    private func columnIcon(for type: String) -> String {
+        let lower = type.lowercased()
+        if lower.contains("int") { return "number" }
+        if lower.contains("bool") { return "checkbox.circle" }
+        if lower.contains("char") || lower.contains("text") || lower.contains("varchar") { return "text.quote" }
+        if lower.contains("date") || lower.contains("time") { return "calendar" }
+        if lower.contains("json") { return "curlybraces" }
+        if lower.contains("uuid") { return "number.circle" }
+        if lower.contains("float") || lower.contains("double") || lower.contains("decimal") || lower.contains("numeric") { return "number.circle" }
+        if lower.contains("blob") || lower.contains("bytea") || lower.contains("binary") { return "doc.richtext" }
+        if lower.contains("enum") { return "list.bullet" }
+        return "circle.grid.2x2"
+    }
 }
 
 // MARK: - Shared row chrome
@@ -576,9 +572,11 @@ private struct TreeRow<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(spacing: 6) { content }
-            .padding(.leading, CGFloat(level) * 14)
+        HStack(spacing: 5) { content }
+            .padding(.leading, CGFloat(level) * 8)
+            .padding(.vertical, 0)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
     }
 }
 

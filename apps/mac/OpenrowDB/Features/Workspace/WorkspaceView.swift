@@ -21,15 +21,32 @@ struct WorkspaceView: View {
     var body: some View {
         if let connection {
             VStack(spacing: 0) {
-                header(connection)
-                Divider()
-
                 if isConnected {
                     TabStrip(connectionID: connectionID)
                     Divider()
                     tabContent
                 } else {
                     disconnectedState
+                }
+            }
+            .navigationTitle(connection.name)
+            .navigationSubtitle("\(connection.driver.rawValue) · \(connection.user)@\(connection.host):\(connection.port)/\(connection.database)")
+            .toolbar {
+                if isConnected, !connection.isReadOnly {
+                    ToolbarItem(placement: .primaryAction) {
+                        DatabaseTransferMenu(
+                            connectionID: connectionID,
+                            dialect: connection.driver.dialect,
+                            databaseName: connection.database
+                        )
+                    }
+                }
+                if connection.isReadOnly {
+                    ToolbarItem(placement: .primaryAction) {
+                        Label("Read-only", systemImage: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
             .background(shortcutCatchers)
@@ -155,55 +172,6 @@ struct WorkspaceView: View {
         )
     }
 
-    // MARK: - Header
-
-    private func header(_ connection: Connection) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(connection.name)
-                    .font(.headline)
-                Text("\(connection.driver.rawValue) · \(connection.user)@\(connection.host):\(connection.port)/\(connection.database)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer()
-
-            if isConnected, !connection.isReadOnly {
-                DatabaseTransferMenu(
-                    connectionID: connectionID,
-                    dialect: connection.driver.dialect,
-                    databaseName: connection.database
-                )
-            }
-
-            if connection.isReadOnly {
-                Label("Read-only", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            statusBadge
-
-            if isConnected {
-                Button("Disconnect") {
-                    Task { await manager.disconnect(connectionID) }
-                }
-                .buttonStyle(.glass)
-            } else {
-                Button("Connect") {
-                    Task { await manager.connect(connectionID) }
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(isConnecting)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
     private var disconnectedState: some View {
         VStack(spacing: 12) {
             Image(systemName: "bolt.horizontal.circle")
@@ -227,22 +195,6 @@ struct WorkspaceView: View {
     private var isConnected: Bool { status == .connected }
     private var isConnecting: Bool { status == .connecting }
 
-    private var statusBadge: some View {
-        Group {
-            switch status {
-            case .disconnected:
-                Label("Disconnected", systemImage: "circle").foregroundStyle(.secondary)
-            case .connecting:
-                Label("Connecting…", systemImage: "circle.dotted").foregroundStyle(.yellow)
-            case .connected:
-                Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            case .failed:
-                Label("Failed", systemImage: "xmark.circle.fill").foregroundStyle(.red)
-            }
-        }
-        .font(.caption)
-        .labelStyle(.titleAndIcon)
-    }
 }
 
 // MARK: - Tab strip

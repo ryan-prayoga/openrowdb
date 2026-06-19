@@ -30,8 +30,6 @@ struct DatabaseTransferMenu: View {
         } label: {
             Label("Transfer", systemImage: "arrow.up.arrow.down.square")
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
         .help("Export or import this database as SQL")
         .sheet(isPresented: $showSheet) {
             TransferProgressSheet(

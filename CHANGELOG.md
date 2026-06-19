@@ -2,6 +2,21 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.8] — 2026-06-19
+
+### Changed
+
+- **Connection header moved to title bar** — connection name and `driver · user@host:port/db` subtitle now live in the macOS window title bar via `.navigationTitle` + `.navigationSubtitle`. The inline header bar (44pt) is removed, giving more vertical space to data. Transfer menu and read-only badge moved to the window toolbar. Disconnect removed from the toolbar — available via right-click on the connection in the sidebar.
+- **Action bar redesign** — search collapses to a magnifying-glass icon by default and expands with a spring animation on click (ESC or blur-when-empty collapses it). Column filter becomes a single icon button; clicking opens a popover with column picker + value field. Filter button turns accent-colored when a filter is active.
+- **Pagination bar** — uses `ViewThatFits` to switch between full layout (Page N of M · range · picker) and compact layout (N/M · range) when the sidebar is wide.
+- **Icon button sizing** — all icon-only buttons in the action bar use `Image(...).frame(16×16)` so `.glass` button style applies uniform padding to all.
+- **Sidebar expand state** — `ConnectionNode` now owns its own `@State private var expanded` instead of receiving a `Set<UUID>` binding, removing the last source of cross-wire between identically-named connections.
+- **Transfer menu** — dropped `.menuStyle(.borderlessButton)` so it renders as a standard macOS toolbar popup button.
+
+### Fixed
+
+- **Pagination bar hidden under glass sidebar** — added `leadingInset` offset so nav buttons and page-info text are not obscured by the translucent NavigationSplitView overlay.
+
 ## [0.1.7] — 2026-06-17
 
 ### Fixed

@@ -35,8 +35,23 @@ final class QueryRunner {
     var sql: String = ""
     private(set) var state: State = .idle
     private(set) var outcomes: [StatementOutcome] = []
+    /// Target database for this tab's queries + autocomplete. `nil` = the
+    /// connection's default database. Set via `useDatabase` so the schema
+    /// catalog reloads for the new database.
+    private(set) var database: String?
+    /// The SQL text of the most recent run, used to flag a tab as having
+    /// un-run edits (the dirty dot in the tab strip).
+    private(set) var lastRunSQL: String?
+    /// True when the editor holds non-empty SQL that differs from the last run.
+    var isDirty: Bool {
+        !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sql != lastRunSQL
+    }
     /// True when the last run produced at least one outcome.
     var hasResults: Bool { !outcomes.isEmpty }
+
+    private var dialect: SQLDialect {
+        manager.connections.first { $0.id == connectionID }?.driver.dialect ?? .postgres
+    }
 
     let catalog: SchemaCatalog
 
@@ -57,9 +72,14 @@ final class QueryRunner {
 
     /// Kick off a run. Cancels any in-flight run for this tab first so spamming
     /// ⌘Return doesn't pile up overlapping queries against the same connection.
-    func run() {
+    /// Run the editor's full SQL, or `override` (a selection or the statement
+    /// under the caret) when provided. Only a full run clears the dirty flag —
+    /// running a fragment leaves the tab marked as having un-run content.
+    func run(_ override: String? = nil) {
         currentTask?.cancel()
-        let statements = SQLStatementSplitter.split(sql)
+        let source = override ?? sql
+        if override == nil { lastRunSQL = sql }
+        let statements = SQLStatementSplitter.split(source)
         guard !statements.isEmpty else {
             outcomes = []
             state = .finished
@@ -81,13 +101,23 @@ final class QueryRunner {
         if case .running = state { state = .finished }
     }
 
+    /// Point this tab at a different database. Reloads the completion catalog so
+    /// table/column suggestions reflect the chosen database, not the
+    /// connection's default.
+    func useDatabase(_ db: String?) {
+        guard db != database else { return }
+        database = db
+        catalog.database = db
+        Task { await catalog.refresh() }
+    }
+
     private func executeAll(_ statements: [String]) async {
         for (index, statement) in statements.enumerated() {
             if Task.isCancelled { break }
             state = .running(progress: "\(index)/\(statements.count)")
             let outcome = await execute(statement)
             outcomes.append(outcome)
-            await record(outcome)
+            await record(original: statement, outcome: outcome)
         }
         state = .finished
     }
@@ -95,7 +125,7 @@ final class QueryRunner {
     private func execute(_ sql: String) async -> StatementOutcome {
         let start = ContinuousClock.now
         do {
-            let result = try await manager.run(sql, on: connectionID)
+            let result = try await manager.run(sql, on: connectionID, database: database)
             let elapsed = elapsedMs(since: start)
             return StatementOutcome(
                 sql: sql,
@@ -120,10 +150,10 @@ final class QueryRunner {
         }
     }
 
-    private func record(_ outcome: StatementOutcome) async {
+    private func record(original sql: String, outcome: StatementOutcome) async {
         let entry = HistoryEntry(
             connectionID: connectionID,
-            sql: outcome.sql,
+            sql: sql,
             executedAt: Date(),
             durationMs: outcome.durationMs,
             rowsAffected: outcome.result?.rowsAffected,

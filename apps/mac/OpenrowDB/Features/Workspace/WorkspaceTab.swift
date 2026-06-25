@@ -81,6 +81,14 @@ final class WorkspaceTabsState {
         tabsByConnection[connectionID] ?? []
     }
 
+    /// Whether a query tab holds SQL that hasn't been run yet (or was edited
+    /// since its last run) — drives the unsaved dot in the tab strip. Reads the
+    /// runner's observable `sql`/`lastRunSQL`, so the dot updates live as the
+    /// user types. Returns false when no runner exists for the tab yet.
+    func isQueryDirty(_ tabID: UUID) -> Bool {
+        runnersByTab[tabID]?.isDirty ?? false
+    }
+
     func selection(for connectionID: UUID) -> WorkspaceTab? {
         selectionByConnection[connectionID]
     }

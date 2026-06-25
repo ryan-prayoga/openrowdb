@@ -36,6 +36,20 @@ struct CodeEditor: NSViewRepresentable {
     /// this, an `errorPosition` change alone wouldn't move the cursor on
     /// repeated clicks of the same error.
     var jumpRequest: Int = 0
+    /// Reports the caret line/column (and any selection length) whenever the
+    /// selection changes, so the status bar can show `Ln · Col` like a native
+    /// code editor. Columns are 1-based UTF-16 offsets within the line.
+    var onCursorChange: ((CursorPosition) -> Void)? = nil
+
+    struct CursorPosition: Equatable {
+        var line: Int = 1
+        var column: Int = 1
+        /// UTF-16 offset of the selection start (the caret when nothing is
+        /// selected), used to extract the selection or the statement under the
+        /// caret for partial runs.
+        var location: Int = 0
+        var selectionLength: Int = 0
+    }
 
     func makeNSView(context: Context) -> NoIntrinsicScrollView {
         let scroll = NoIntrinsicScrollView(frame: .zero)
@@ -43,7 +57,13 @@ struct CodeEditor: NSViewRepresentable {
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
-        scroll.drawsBackground = false
+        // Paint the scroll view (incl. the area behind the line-number ruler) in
+        // the editor's own background so the gutter and text share one surface.
+        // With a clear background the gutter showed the lighter window colour,
+        // and the seam against the dark text area read as a vertical line that
+        // appeared to run the full height of the pane.
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .textBackgroundColor
         scroll.autoresizingMask = [.width, .height]
         scroll.translatesAutoresizingMaskIntoConstraints = true
 
@@ -104,6 +124,14 @@ struct CodeEditor: NSViewRepresentable {
         context.coordinator.highlighter = highlighter
         highlighter.highlightAll(textView)
 
+        // Report the initial caret position once the view is live. Deferred to
+        // the next run loop because invoking the closure synchronously here
+        // would mutate SwiftUI @State during the representable's first layout.
+        let coordinator = context.coordinator
+        DispatchQueue.main.async { [weak textView] in
+            if let textView { coordinator.reportCursor(textView) }
+        }
+
         return scroll
     }
 
@@ -112,6 +140,7 @@ struct CodeEditor: NSViewRepresentable {
         context.coordinator.dialect = dialect
         context.coordinator.schema = schema
         context.coordinator.onSubmit = onSubmit
+        context.coordinator.onCursorChange = onCursorChange
         context.coordinator.highlighter?.dialect = dialect
         // Only sync from binding when the text genuinely diverged. Without this
         // guard, every keystroke triggers updateNSView → setString → wipes the
@@ -196,7 +225,7 @@ struct CodeEditor: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, dialect: dialect, schema: schema, onSubmit: onSubmit)
+        Coordinator(text: $text, dialect: dialect, schema: schema, onSubmit: onSubmit, onCursorChange: onCursorChange)
     }
 
     @MainActor
@@ -205,6 +234,7 @@ struct CodeEditor: NSViewRepresentable {
         var dialect: SQLDialect
         var schema: SchemaSnapshot
         var onSubmit: (() -> Void)?
+        var onCursorChange: ((CursorPosition) -> Void)?
         weak var textView: NSTextView?
         weak var rulerView: LineNumberRulerView?
         var highlighter: SQLSyntaxHighlighter?
@@ -219,11 +249,12 @@ struct CodeEditor: NSViewRepresentable {
         /// strip the glyph before insertion.
         private var displayToSuggestion: [String: CompletionSuggestion] = [:]
 
-        init(text: Binding<String>, dialect: SQLDialect, schema: SchemaSnapshot, onSubmit: (() -> Void)?) {
+        init(text: Binding<String>, dialect: SQLDialect, schema: SchemaSnapshot, onSubmit: (() -> Void)?, onCursorChange: ((CursorPosition) -> Void)?) {
             self.text = text
             self.dialect = dialect
             self.schema = schema
             self.onSubmit = onSubmit
+            self.onCursorChange = onCursorChange
         }
 
         func textDidChange(_ notification: Notification) {
@@ -234,6 +265,30 @@ struct CodeEditor: NSViewRepresentable {
             }
             rulerView?.refresh()
             scheduleCompletion(in: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            reportCursor(textView)
+        }
+
+        /// Translate the text view's selected range into 1-based line/column and
+        /// push it to `onCursorChange`. Line is the count of newlines before the
+        /// caret + 1; column is the UTF-16 distance from the start of that line.
+        func reportCursor(_ textView: NSTextView) {
+            guard let onCursorChange else { return }
+            let ns = textView.string as NSString
+            let selection = textView.selectedRange()
+            let caret = min(selection.location, ns.length)
+            var line = 1
+            var index = 0
+            while index < caret {
+                if ns.character(at: index) == 10 { line += 1 }
+                index += 1
+            }
+            let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
+            let column = caret - lineRange.location + 1
+            onCursorChange(CursorPosition(line: line, column: column, location: caret, selectionLength: selection.length))
         }
 
         /// Trigger the AppKit completion panel as the user types. The popup is

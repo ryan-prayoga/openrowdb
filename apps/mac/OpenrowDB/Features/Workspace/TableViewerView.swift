@@ -7,8 +7,9 @@ import SwiftUI
 struct TableViewerView: View {
     let connectionID: UUID
     let table: TableRef
-    /// Leading inset for the result grid, matching the sidebar overlap so the
-    /// first column doesn't render under the translucent sidebar.
+    /// Width of the translucent NavigationSplitView sidebar overlapping the
+    /// detail's leading edge, forwarded to the data grid so its first column
+    /// isn't hidden under the sidebar.
     var leadingInset: CGFloat = 0
 
     var body: some View {

@@ -28,11 +28,15 @@ struct ResultsGrid: View {
     let result: QueryResult
     @Binding var sortOrder: [ColumnComparator]
     @Binding var selection: Int?
-    /// Leading inset for the scroll content, in points. Used when the grid fills
-    /// a workspace tab beside the translucent NavigationSplitView sidebar, which
-    /// overlays the detail's leading edge; the hosted NSTableView otherwise
-    /// scrolls its columns under the sidebar. Defaults to 0 (e.g. the Browse
-    /// split, where the grid never abuts the sidebar).
+    /// Width of the translucent NavigationSplitView sidebar that overlaps the
+    /// detail's leading edge (the leading safe-area inset), threaded down from
+    /// `WorkspaceView`. The hosted NSTableView fills the full window width and
+    /// anchors at the window's left edge — under the sidebar — when its columns
+    /// are wider than the visible area, hiding the first column. We make it
+    /// ignore the leading safe area (so it always starts at the window edge) and
+    /// then pad it back out by this amount so the first column lands flush
+    /// against the sidebar in every state. 0 when the grid never abuts the
+    /// sidebar (e.g. the Browse split).
     var leadingInset: CGFloat = 0
 
     // Row action callbacks — nil = action not available in this context
@@ -117,10 +121,15 @@ struct ResultsGrid: View {
                 // Double-click
                 if let id = items.first { onDoubleClick?(id) }
             }
-            // Leading padding equal to the sidebar overlap. The hosted
-            // NSTableView extends its scroll area into the leading safe area
-            // (under the translucent sidebar); padding by that amount pulls the
-            // columns back out so the first column isn't hidden by the sidebar.
+            // See `leadingInset`. Only the standalone Browse grid (which fills
+            // the detail directly) bleeds its columns under the sidebar and
+            // passes a non-zero inset; there we make the table ignore the
+            // leading safe area so it anchors at the window edge, then pad it
+            // back out by the overlap. The query-results grid sits below the
+            // editor — whose scroll view already consumes the leading safe area
+            // — so it auto-insets correctly and passes 0 (padding it would
+            // double-inset). Gate both modifiers so 0 is a true no-op.
+            .ignoresSafeArea(.container, edges: leadingInset > 0 ? .leading : [])
             .padding(.leading, leadingInset)
         }
     }

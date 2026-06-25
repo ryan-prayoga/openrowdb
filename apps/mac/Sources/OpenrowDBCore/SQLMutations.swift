@@ -274,6 +274,14 @@ public extension SQLDialect {
         "DROP TABLE \(qualifiedName(table))"
     }
 
+    func createDatabaseSQL(_ name: String) -> String {
+        "CREATE DATABASE \(quote(name))"
+    }
+
+    func dropDatabaseSQL(_ name: String) -> String {
+        "DROP DATABASE \(quote(name))"
+    }
+
     func renameTableSQL(_ table: TableRef, to newName: String) -> String {
         "ALTER TABLE \(qualifiedName(table)) RENAME TO \(quote(newName))"
     }

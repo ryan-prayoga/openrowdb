@@ -33,6 +33,15 @@ public final class SchemaCatalog {
     public private(set) var isRefreshing = false
     public private(set) var lastError: String?
 
+    /// Database the completion catalog reflects. `nil` = the connection's
+    /// default database. Switching it drops the cached snapshot so stale tables
+    /// from the previous database don't linger until the next refresh lands.
+    public var database: String? {
+        didSet {
+            if database != oldValue { snapshot = .empty }
+        }
+    }
+
     private let connectionID: UUID
     private let manager: ConnectionManager
 
@@ -47,7 +56,7 @@ public final class SchemaCatalog {
         defer { isRefreshing = false }
 
         do {
-            let tables = try await manager.tables(on: connectionID)
+            let tables = try await manager.tables(on: connectionID, database: database)
             var byTable = snapshot.columnsByTable
             for ref in tables where byTable[ref.id] == nil {
                 if let cols = try? await manager.columns(of: ref, on: connectionID) {

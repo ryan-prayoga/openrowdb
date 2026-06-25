@@ -14,6 +14,9 @@ struct TableDataView: View {
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connectionID: UUID
     let table: TableRef
+    /// Width of the translucent NavigationSplitView sidebar overlapping the
+    /// detail's leading edge, forwarded to `ResultsGrid` so its first column
+    /// isn't hidden under the sidebar.
     var leadingInset: CGFloat = 0
     /// Called after a successful insert / update / delete so the host (e.g. the
     /// browser's table list) can refresh row-count badges.
@@ -199,7 +202,11 @@ struct TableDataView: View {
                     result: result,
                     sortOrder: $sortOrder,
                     selection: $selectedRowID,
-                    leadingInset: leadingInset,
+                    // 0: the grid no longer abuts the translucent sidebar through
+                    // an `.inspector` column (which anchored the NSTableView at the
+                    // window edge). As a plain pane it inherits the leading safe
+                    // area normally, so the manual inset would double up.
+                    leadingInset: 0,
                     canMutate: canMutate,
                     inlineEdit: editState.rowID != nil ? editState : nil,
                     onCommitEdit: { commitInlineEdit() },
@@ -233,16 +240,29 @@ struct TableDataView: View {
                 Divider()
                 paginationBar
             }
-            .inspector(isPresented: $showRowInspector) {
-                RowInspector(
-                    result: result,
-                    selectedRowID: selectedRowID,
-                    columnTypes: columnTypes,
-                    foreignKeys: foreignKeys,
-                    onFollowFK: followForeignKey
-                )
-                .inspectorColumnWidth(min: 240, ideal: 300, max: 460)
+            // Trailing detail pane via `safeAreaInset` rather than `.inspector`:
+            // the native macOS inspector renders as an inset rounded-corner glass
+            // card, and that rounded top corner cut into the content. safeAreaInset
+            // reserves a flush, square trailing strip and — being a trailing-only
+            // inset like the inspector was — leaves the grid's leading sidebar
+            // safe-area handling untouched.
+            .safeAreaInset(edge: .trailing, spacing: 0) {
+                if showRowInspector {
+                    HStack(spacing: 0) {
+                        Divider()
+                        RowInspector(
+                            result: result,
+                            selectedRowID: selectedRowID,
+                            columnTypes: columnTypes,
+                            foreignKeys: foreignKeys,
+                            onFollowFK: followForeignKey
+                        )
+                        .frame(width: 300)
+                    }
+                    .transition(.move(edge: .trailing))
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: showRowInspector)
         } else if loadingRows {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if totalRows?.value == 0 {
@@ -440,7 +460,7 @@ struct TableDataView: View {
             }
         }
         .buttonStyle(.glass)
-        .padding(.leading, leadingInset + 12)
+        .padding(.leading, 12)
         .padding(.trailing, 12)
         .padding(.vertical, 8)
     }

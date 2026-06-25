@@ -2,6 +2,27 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.9] — 2026-06-26
+
+### Added
+
+- **Schema browser sidebar** — connections expand to databases → schemas → tables → columns, with inline row counts (`~` for estimates) and column types. Any database on the server is browsable without switching the connection.
+- **Sidebar SQL/DDL actions** — right-click menus: table New / Rename / Drop / Truncate / Edit Structure / Export-as-SQL; database New / Drop / Export-as-SQL; Copy CREATE statement; Copy Name / Copy Qualified Name on tables and columns; Refresh.
+- **Partial run** — ⌘↩ runs the selection or the statement under the caret; ⇧⌘↩ runs all. Run menu exposes Run Selection / Run Current Statement / Run All Statements.
+- **Editor status bar** — live `Ln · Col`, selection length, and char/line counts.
+- **Getting-started hints** — a fresh query tab shows key shortcuts in the results pane instead of an empty void.
+- **Jump to error** — a failed result moves the caret to the offending token.
+- **Line-number gutter** — a hairline divider separates the line numbers from the code.
+
+### Removed
+
+- **Row-limit toolbar control** — the auto-`LIMIT` picker is removed; queries always run exactly as written.
+
+### Fixed
+
+- **Gutter seam** — the line-number ruler no longer bleeds a full-height vertical line behind the toolbar and results. The hosted `NSScrollView` ruler composited outside the editor frame; `compositingGroup()` + `clipped()` contains it.
+- **Row inspector rounded corner** — the table viewer's right inspector rendered as an inset rounded-corner glass card (native `.inspector`), notching the content. Replaced with a flush, square trailing pane via `safeAreaInset` (`leadingInset` no longer needed, so the grid inherits the sidebar safe area normally).
+
 ## [0.1.8] — 2026-06-19
 
 ### Changed

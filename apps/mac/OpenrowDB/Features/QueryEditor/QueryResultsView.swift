@@ -8,7 +8,6 @@ import SwiftUI
 struct QueryResultsView: View {
     let outcomes: [QueryRunner.StatementOutcome]
     let state: QueryRunner.State
-    var leadingInset: CGFloat = 0
     var onJumpToError: ((Int) -> Void)? = nil
 
     @State private var selection: Int = 0
@@ -16,7 +15,7 @@ struct QueryResultsView: View {
     var body: some View {
         if outcomes.isEmpty {
             if isFreshTab {
-                Color.clear
+                QueryGettingStartedView()
             } else {
                 placeholder
             }
@@ -70,8 +69,7 @@ struct QueryResultsView: View {
             ResultsGrid(
                 result: result,
                 sortOrder: .constant([]),
-                selection: .constant(nil),
-                leadingInset: leadingInset
+                selection: .constant(nil)
             )
         }
     }

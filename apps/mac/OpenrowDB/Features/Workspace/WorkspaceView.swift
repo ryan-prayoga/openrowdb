@@ -108,7 +108,7 @@ struct WorkspaceView: View {
             ZStack(alignment: .topLeading) {
                 switch tabs.selection(for: connectionID) {
                 case .query(let id):
-                    QueryEditorView(connectionID: connectionID, tabID: id, leadingInset: geo.safeAreaInsets.leading)
+                    QueryEditorView(connectionID: connectionID, tabID: id)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                         .transition(slideTransition)
                 case .table(let ref):
@@ -224,6 +224,7 @@ private struct TabStrip: View {
                                 label: label(for: tab, index: index),
                                 systemImage: icon(for: tab),
                                 isSelected: tab == selection,
+                                isDirty: isDirty(for: tab),
                                 onSelect: {
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         tabs.select(tab, for: connectionID)
@@ -257,6 +258,11 @@ private struct TabStrip: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
+    }
+
+    private func isDirty(for tab: WorkspaceTab) -> Bool {
+        if case .query(let id) = tab { return tabs.isQueryDirty(id) }
+        return false
     }
 
     private func label(for tab: WorkspaceTab, index: Int) -> String {
@@ -298,6 +304,7 @@ private struct TabChip: View {
     let label: String
     let systemImage: String
     let isSelected: Bool
+    let isDirty: Bool
     let onSelect: () -> Void
     let onClose: (() -> Void)?
 
@@ -323,13 +330,25 @@ private struct TabChip: View {
             Text(label)
                 .lineLimit(1)
             if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .imageScale(.small)
-                        .padding(2)
+                // Unsaved query tabs show a dot that becomes the close button on
+                // hover — the familiar editor pattern (Xcode / VS Code).
+                ZStack {
+                    if isDirty && !isHovered {
+                        Circle()
+                            .fill(.secondary)
+                            .frame(width: 7, height: 7)
+                    } else {
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .imageScale(.small)
+                                .padding(2)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Close Tab (⌘W)")
+                    }
                 }
-                .buttonStyle(.borderless)
-                .help("Close Tab (⌘W)")
+                .frame(width: 18, height: 18)
+                .animation(.easeInOut(duration: 0.12), value: isDirty)
             }
         }
         .padding(.horizontal, 10)

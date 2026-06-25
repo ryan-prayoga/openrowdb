@@ -18,6 +18,26 @@ final class LineNumberRulerView: NSRulerView {
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
+        // Match the editor's background so the gutter and text form one surface
+        // with no vertical seam between them.
+        NSColor.textBackgroundColor.setFill()
+        bounds.fill()
+
+        // Hairline dividing the line-number gutter from the code. It is painted
+        // inside the ruler, so it spans only the editor's height — it never
+        // bleeds up behind the toolbar or down behind the results pane, which
+        // live outside this scroll view. The earlier "clear gutter" approach
+        // had the inverse problem: the gutter showed the lighter window colour
+        // and its seam against the dark text read as a line running the full
+        // pane height.
+        NSColor.separatorColor.setStroke()
+        let seamX = ruleThickness - 0.5
+        let seam = NSBezierPath()
+        seam.move(to: NSPoint(x: seamX, y: bounds.minY))
+        seam.line(to: NSPoint(x: seamX, y: bounds.maxY))
+        seam.lineWidth = 1
+        seam.stroke()
+
         guard let textView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }

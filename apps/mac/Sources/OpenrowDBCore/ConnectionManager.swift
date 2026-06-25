@@ -359,6 +359,37 @@ public final class ConnectionManager {
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.renameColumnSQL(table, column: column, to: newName)) }
     }
 
+    // MARK: - Database mutations (DDL)
+
+    /// `CREATE DATABASE name`, issued through the connection's default
+    /// (maintenance) database. Caller should refresh the database list after.
+    public func createDatabase(_ name: String, on id: UUID) async throws {
+        try assertWritable(id)
+        guard let conn = connections.first(where: { $0.id == id }) else { throw DatabaseError.notConnected }
+        let sql = conn.driver.dialect.createDatabaseSQL(name)
+        _ = try await perform(id, database: conn.database) { try await $0.query(sql) }
+    }
+
+    /// `DROP DATABASE name`. Postgres can't drop a database it is connected to,
+    /// so the statement runs through a *different* maintenance database and any
+    /// cached client to the target is closed first to release open sessions.
+    public func dropDatabase(_ name: String, on id: UUID) async throws {
+        try assertWritable(id)
+        guard let conn = connections.first(where: { $0.id == id }) else { throw DatabaseError.notConnected }
+        if name != conn.database {
+            let targetKey = ClientKey(connectionID: id, database: name)
+            if let client = clients[targetKey] {
+                await client.close()
+                clients[targetKey] = nil
+            }
+        }
+        let maintenance = name == conn.database
+            ? (conn.driver == .mysql ? conn.database : "postgres")
+            : conn.database
+        let sql = conn.driver.dialect.dropDatabaseSQL(name)
+        _ = try await perform(id, database: maintenance) { try await $0.query(sql) }
+    }
+
     // MARK: - Client resolution
 
     /// The concrete database name for a request, treating nil/empty as the

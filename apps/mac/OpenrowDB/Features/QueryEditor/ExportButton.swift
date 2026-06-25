@@ -26,11 +26,14 @@ struct ExportButton: View {
             Button("Copy as CSV") { copyCSV() }
             Button("Copy as JSON") { copyJSON() }
         } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
+            Image(systemName: "square.and.arrow.up").frame(width: 16, height: 16)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .fixedSize()
         .disabled(exportable == nil)
         .help(exportable == nil ? "No result to export" : "Export or copy the first result")
+        .accessibilityLabel("Export")
         .alert("Export failed", isPresented: $showError, presenting: lastError) { _ in
             Button("OK", role: .cancel) {}
         } message: { message in

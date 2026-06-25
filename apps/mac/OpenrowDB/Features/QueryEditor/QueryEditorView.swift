@@ -1,4 +1,5 @@
 // QueryEditorView.swift
+import AppKit
 import OpenrowDBCore
 import SwiftUI
 
@@ -12,9 +13,6 @@ struct QueryEditorView: View {
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     let connectionID: UUID
     let tabID: UUID
-    /// Leading inset for the result grid, matching the sidebar overlap so the
-    /// first column doesn't render under the translucent sidebar.
-    var leadingInset: CGFloat = 0
 
     @State private var showHistory = false
     @State private var showSnippets = false
@@ -24,6 +22,8 @@ struct QueryEditorView: View {
     @State private var explainError: String?
     @State private var explainLoading = false
     @State private var jumpRequest: Int = 0
+    @State private var cursor = CodeEditor.CursorPosition()
+    @State private var databases: [String] = []
     @FocusState private var editorFocused: Bool
 
     @State private var editorHeight: CGFloat = 240
@@ -61,14 +61,13 @@ struct QueryEditorView: View {
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     editor(runner: runner)
-                        .frame(height: clampedEditorHeight(for: geo.size.height))
+                        .frame(height: effectiveEditorHeight(container: geo.size.height, runner: runner))
 
                     horizontalResizeHandle(containerHeight: geo.size.height)
 
                     QueryResultsView(
                         outcomes: runner.outcomes,
                         state: runner.state,
-                        leadingInset: leadingInset,
                         onJumpToError: { _ in
                             jumpRequest &+= 1
                             editorFocused = true
@@ -122,6 +121,26 @@ struct QueryEditorView: View {
         return min(max(editorHeight, Self.minEditorHeight), maxAllowed)
     }
 
+    /// While a tab has no results to show, the editor takes the lion's share of
+    /// the pane (so the void below shrinks to a tidy getting-started strip).
+    /// Once a run produces results, it falls back to the user's chosen height so
+    /// the grid gets room. A manual drag larger than the default still wins.
+    private func effectiveEditorHeight(container: CGFloat, runner: QueryRunner) -> CGFloat {
+        // Before the geometry resolves, hand back the stored height rather than a
+        // height derived from a zero container — a transient zero-height pass can
+        // make the hosted NSTextView cache a broken (narrow) layout.
+        guard container > 0 else { return editorHeight }
+        // Expand whenever there are no results to show (including while a query
+        // is still running) so the only height change is the single shrink when
+        // results actually land.
+        guard !runner.hasResults else {
+            return clampedEditorHeight(for: container)
+        }
+        let maxAllowed = max(Self.minEditorHeight, container - Self.minResultsHeight - 6)
+        let target = max(editorHeight, container * 0.62)
+        return min(max(target, Self.minEditorHeight), maxAllowed)
+    }
+
     private func horizontalResizeHandle(containerHeight: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
@@ -160,15 +179,32 @@ struct QueryEditorView: View {
                 text: $runner.sql,
                 dialect: dialect,
                 schema: runner.catalog.snapshot,
-                onSubmit: { runner.run() },
+                onSubmit: {
+                    // ⌘↩ runs the selection or current statement; ⌘⇧↩ runs all.
+                    if NSEvent.modifierFlags.contains(.shift) {
+                        runner.run()
+                    } else {
+                        smartRun(runner)
+                    }
+                },
                 errorPosition: firstErrorPosition(in: runner.outcomes),
-                jumpRequest: jumpRequest
+                jumpRequest: jumpRequest,
+                onCursorChange: { cursor = $0 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The hosted NSScrollView's line-number ruler composites its drawing
+            // on a layer that isn't clipped to this SwiftUI frame, so the
+            // gutter's vertical edge bled up behind the toolbar and down behind
+            // the results pane as a full-height seam. compositingGroup() flattens
+            // the AppKit layer so clipped() actually bites (same trick as the
+            // tab slide in WorkspaceView).
+            .compositingGroup()
+            .clipped()
             .focused($editorFocused)
             .onAppear {
                 editorFocused = true
                 Task { await runner.catalog.refresh() }
+                Task { databases = (try? await manager.databases(on: connectionID)) ?? [] }
             }
             Divider()
             statusBar(runner: runner)
@@ -180,49 +216,56 @@ struct QueryEditorView: View {
     }
 
     private func toolbar(runner: QueryRunner) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                runner.run()
+        let running = isRunning(runner.state)
+        let blank = isBlank(runner.sql)
+        return HStack(spacing: 8) {
+            Menu {
+                Button("Run Current Statement") { runCurrent(runner) }
+                Button("Run Selection") { runSelection(runner) }
+                    .disabled(cursor.selectionLength == 0)
+                Divider()
+                Button("Run All Statements") { runner.run() }
             } label: {
                 Label {
-                    Text(isRunning(runner.state) ? "Running…" : "Run")
+                    Text(running ? "Running…" : "Run")
                 } icon: {
-                    Image(systemName: isRunning(runner.state) ? "hourglass" : "play.fill")
+                    Image(systemName: running ? "hourglass" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
                 }
+            } primaryAction: {
+                smartRun(runner)
             }
+            .menuStyle(.button)
             .buttonStyle(.glassProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(isRunning(runner.state) || runner.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .fixedSize()
+            .disabled(running || blank)
+            .help("Run selection or current statement (⌘↩) · Run all (⇧⌘↩)")
 
-            if isRunning(runner.state) {
+            if running {
                 Button {
                     runner.cancel()
                 } label: {
-                    Label("Cancel", systemImage: "stop.fill")
+                    Image(systemName: "stop.fill").frame(width: 16, height: 16)
                 }
                 .buttonStyle(.glass)
                 .keyboardShortcut(".", modifiers: .command)
+                .help("Cancel run (⌘.)")
+                .accessibilityLabel("Cancel")
                 .transition(.opacity)
             }
 
-            Button {
+            iconButton("text.alignleft", help: "Format SQL (⌘⇧F)", accessibility: "Format") {
                 runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
-            } label: {
-                Label("Format", systemImage: "text.alignleft")
             }
-            .buttonStyle(.glass)
             .keyboardShortcut("f", modifiers: [.command, .shift])
-            .help("Format SQL (⌘⇧F)")
+            .disabled(blank)
 
-            Button {
+            iconButton("list.bullet.rectangle", help: "Explain plan for the first statement", accessibility: "Explain") {
                 runExplain(runner: runner)
-            } label: {
-                Label("Explain", systemImage: "list.bullet.rectangle")
             }
-            .buttonStyle(.glass)
-            .disabled(isRunning(runner.state) || runner.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Show EXPLAIN plan for the first statement")
+            .disabled(running || blank)
+
+            databaseMenu(runner: runner)
 
             if manager.isReadOnly(connectionID) {
                 Label("Read-only", systemImage: "lock.fill")
@@ -235,30 +278,94 @@ struct QueryEditorView: View {
             ExportButton(outcomes: runner.outcomes)
 
             Toggle(isOn: $showSnippets) {
-                Label("Snippets", systemImage: "bookmark")
+                Image(systemName: "bookmark").frame(width: 16, height: 16)
             }
             .toggleStyle(.button)
             .help("Saved query snippets")
+            .accessibilityLabel("Snippets")
             .onChange(of: showSnippets) { _, on in
                 if on { showHistory = false }
             }
 
             Toggle(isOn: $showHistory) {
-                Label("History", systemImage: "clock.arrow.circlepath")
+                Image(systemName: "clock.arrow.circlepath").frame(width: 16, height: 16)
             }
             .toggleStyle(.button)
             .help("Show query history")
+            .accessibilityLabel("History")
             .onChange(of: showHistory) { _, on in
                 if on { showSnippets = false }
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .animation(.easeInOut(duration: 0.18), value: isRunning(runner.state))
+        .animation(.easeInOut(duration: 0.18), value: running)
+    }
+
+    /// Uniform 16×16 glass icon button, matching the table action-bar sizing so
+    /// `.glass` padding stays consistent across every icon-only control.
+    private func iconButton(
+        _ systemName: String,
+        help: String,
+        accessibility: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName).frame(width: 16, height: 16)
+        }
+        .buttonStyle(.glass)
+        .help(help)
+        .accessibilityLabel(accessibility)
+    }
+
+    /// Database this query tab targets. Defaults to the connection's database;
+    /// the picker lets the user point a tab at any database on the server so
+    /// autocomplete and runs match what they're browsing in the sidebar tree.
+    private func databaseMenu(runner: QueryRunner) -> some View {
+        let current = currentDatabase(runner)
+        return Menu {
+            ForEach(databases, id: \.self) { db in
+                Button {
+                    runner.useDatabase(db)
+                } label: {
+                    if db == current {
+                        Label(db, systemImage: "checkmark")
+                    } else {
+                        Text(db)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "cylinder.split.1x2").frame(width: 16, height: 16)
+                Text(current).lineLimit(1)
+            }
+        }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .fixedSize()
+        .help("Database for this query tab")
+        .accessibilityLabel("Database: \(current)")
+    }
+
+    private var connectionDatabase: String? {
+        manager.connections.first { $0.id == connectionID }?.database
+    }
+
+    private func currentDatabase(_ runner: QueryRunner) -> String {
+        runner.database ?? connectionDatabase ?? "—"
     }
 
     private func statusBar(runner: QueryRunner) -> some View {
         HStack(spacing: 10) {
+            if let driverLabel {
+                Text(driverLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: .capsule)
+            }
             switch runner.state {
             case .idle:
                 Text("Ready").foregroundStyle(.secondary)
@@ -269,12 +376,24 @@ struct QueryEditorView: View {
                 summary(runner.outcomes)
             }
             Spacer()
+            if cursor.selectionLength > 0 {
+                Text("\(cursor.selectionLength) selected").foregroundStyle(.tertiary)
+                Text("·").foregroundStyle(.quaternary)
+            }
+            Text("Ln \(cursor.line), Col \(cursor.column)")
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+            Text("·").foregroundStyle(.quaternary)
             Text("\(charCount(runner.sql)) chars · \(lineCount(runner.sql)) lines")
                 .foregroundStyle(.tertiary)
         }
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+    }
+
+    private var driverLabel: String? {
+        manager.connections.first { $0.id == connectionID }?.driver.rawValue
     }
 
     private func summary(_ outcomes: [QueryRunner.StatementOutcome]) -> some View {
@@ -302,6 +421,10 @@ struct QueryEditorView: View {
         return false
     }
 
+    private func isBlank(_ sql: String) -> Bool {
+        sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func charCount(_ string: String) -> Int { string.count }
 
     private func lineCount(_ string: String) -> Int {
@@ -310,6 +433,92 @@ struct QueryEditorView: View {
 
     private func firstErrorPosition(in outcomes: [QueryRunner.StatementOutcome]) -> Int? {
         outcomes.first(where: { $0.errorPosition != nil })?.errorPosition
+    }
+
+    // MARK: - Run targeting
+
+    /// ⌘↩ behaviour: run the selection if there is one, else the statement under
+    /// the caret, else fall back to the whole editor.
+    private func smartRun(_ runner: QueryRunner) {
+        if let selection = selectedText(runner.sql) {
+            runner.run(selection)
+        } else if let statement = currentStatement(runner.sql) {
+            runner.run(statement)
+        } else {
+            runner.run()
+        }
+    }
+
+    private func runSelection(_ runner: QueryRunner) {
+        runner.run(selectedText(runner.sql))
+    }
+
+    private func runCurrent(_ runner: QueryRunner) {
+        runner.run(currentStatement(runner.sql))
+    }
+
+    /// The currently selected text, or nil when the selection is empty/blank.
+    private func selectedText(_ sql: String) -> String? {
+        guard cursor.selectionLength > 0 else { return nil }
+        let ns = sql as NSString
+        let location = min(cursor.location, ns.length)
+        let length = min(cursor.selectionLength, ns.length - location)
+        guard length > 0 else { return nil }
+        return trimmedOrNil(ns.substring(with: NSRange(location: location, length: length)))
+    }
+
+    /// The statement straddling the caret, found by walking `;` boundaries while
+    /// honouring strings, quoted identifiers, and comments (mirrors
+    /// `SQLStatementSplitter`, but in UTF-16 to match the caret offset). Returns
+    /// nil when the caret sits in blank space between statements.
+    private func currentStatement(_ sql: String) -> String? {
+        let ns = sql as NSString
+        let n = ns.length
+        guard n > 0 else { return nil }
+        let caret = min(cursor.location, n)
+
+        let singleQuote: unichar = 39, doubleQuote: unichar = 34, backtick: unichar = 96
+        let dash: unichar = 45, slash: unichar = 47, star: unichar = 42
+        let newline: unichar = 10, semicolon: unichar = 59
+
+        var i = 0
+        var segmentStart = 0
+        while i < n {
+            let c = ns.character(at: i)
+            switch c {
+            case singleQuote, doubleQuote, backtick:
+                let quote = c
+                i += 1
+                while i < n {
+                    if ns.character(at: i) == quote {
+                        if i + 1 < n, ns.character(at: i + 1) == quote { i += 2; continue }
+                        i += 1
+                        break
+                    }
+                    i += 1
+                }
+            case dash where i + 1 < n && ns.character(at: i + 1) == dash:
+                i += 2
+                while i < n, ns.character(at: i) != newline { i += 1 }
+            case slash where i + 1 < n && ns.character(at: i + 1) == star:
+                i += 2
+                while i + 1 < n, !(ns.character(at: i) == star && ns.character(at: i + 1) == slash) { i += 1 }
+                i += 2
+            case semicolon:
+                if caret <= i {
+                    return trimmedOrNil(ns.substring(with: NSRange(location: segmentStart, length: i - segmentStart)))
+                }
+                segmentStart = i + 1
+                i += 1
+            default:
+                i += 1
+            }
+        }
+        return trimmedOrNil(ns.substring(with: NSRange(location: segmentStart, length: n - segmentStart)))
+    }
+
+    private func trimmedOrNil(_ string: String) -> String? {
+        string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : string
     }
 
     private func runExplain(runner: QueryRunner) {
@@ -322,7 +531,7 @@ struct QueryEditorView: View {
         showExplain = true
         Task {
             do {
-                explainResult = try await manager.explain(first, on: connectionID)
+                explainResult = try await manager.explain(first, on: connectionID, database: runner.database)
                 explainError = nil
             } catch {
                 explainResult = nil

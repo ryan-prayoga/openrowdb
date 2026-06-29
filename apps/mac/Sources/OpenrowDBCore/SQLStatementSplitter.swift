@@ -14,12 +14,26 @@ import Foundation
 ///
 /// v1 scope: does NOT handle Postgres dollar-quoted strings ($tag$ ... $tag$),
 /// MySQL `DELIMITER` directives, or nested block comments. Those are post-v1.
+public struct SplitStatement: Sendable, Equatable {
+    public let sql: String
+    /// 0-indexed UTF-16 offset in the original input where this statement's
+    /// first non-whitespace character begins. Matches Postgres caret offsets
+    /// when mapping a per-statement error position back into a multi-statement
+    /// editor buffer.
+    public let utf16Offset: Int
+}
+
 public enum SQLStatementSplitter: Sendable {
     public static func split(_ sql: String) -> [String] {
-        var statements: [String] = []
+        splitWithOffsets(sql).map(\.sql)
+    }
+
+    public static func splitWithOffsets(_ sql: String) -> [SplitStatement] {
+        var statements: [SplitStatement] = []
         var current = ""
         let scalars = Array(sql.unicodeScalars)
         var index = 0
+        var segmentStart = 0
 
         while index < scalars.count {
             let scalar = scalars[index]
@@ -48,10 +62,15 @@ public enum SQLStatementSplitter: Sendable {
                 index = consumeBlockComment(scalars, from: index + 2, into: &current)
 
             case ";":
-                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { statements.append(trimmed) }
+                flushSegment(
+                    scalars: scalars,
+                    segmentStart: segmentStart,
+                    segmentEnd: index,
+                    into: &statements
+                )
                 current.removeAll(keepingCapacity: true)
                 index += 1
+                segmentStart = index
 
             default:
                 current.unicodeScalars.append(scalar)
@@ -59,9 +78,34 @@ public enum SQLStatementSplitter: Sendable {
             }
         }
 
-        let trailing = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trailing.isEmpty { statements.append(trailing) }
+        flushSegment(
+            scalars: scalars,
+            segmentStart: segmentStart,
+            segmentEnd: scalars.count,
+            into: &statements
+        )
         return statements
+    }
+
+    private static func flushSegment(
+        scalars: [Unicode.Scalar],
+        segmentStart: Int,
+        segmentEnd: Int,
+        into statements: inout [SplitStatement]
+    ) {
+        guard segmentStart < segmentEnd else { return }
+        var current = ""
+        for i in segmentStart..<segmentEnd {
+            current.unicodeScalars.append(scalars[i])
+        }
+        let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        var first = segmentStart
+        while first < segmentEnd, Character(scalars[first]).isWhitespace { first += 1 }
+        let prefix = String(String.UnicodeScalarView(scalars[0..<first]))
+        let utf16Offset = (prefix as NSString).length
+        statements.append(SplitStatement(sql: trimmed, utf16Offset: utf16Offset))
     }
 
     /// Consume to and including the closing single quote, treating `''` as an

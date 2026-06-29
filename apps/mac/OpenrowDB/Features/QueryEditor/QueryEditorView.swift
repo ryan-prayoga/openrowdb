@@ -23,6 +23,7 @@ struct QueryEditorView: View {
     @State private var explainLoading = false
     @State private var jumpRequest: Int = 0
     @State private var cursor = CodeEditor.CursorPosition()
+    @State private var editorAccess = EditorAccess()
     @State private var databases: [String] = []
     @FocusState private var editorFocused: Bool
 
@@ -187,9 +188,10 @@ struct QueryEditorView: View {
                         smartRun(runner)
                     }
                 },
-                errorPosition: firstErrorPosition(in: runner.outcomes),
+                errorPosition: editorErrorPosition(in: runner.outcomes),
                 jumpRequest: jumpRequest,
-                onCursorChange: { cursor = $0 }
+                onCursorChange: { cursor = $0 },
+                access: editorAccess
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // The hosted NSScrollView's line-number ruler composites its drawing
@@ -222,7 +224,7 @@ struct QueryEditorView: View {
             Menu {
                 Button("Run Current Statement") { runCurrent(runner) }
                 Button("Run Selection") { runSelection(runner) }
-                    .disabled(cursor.selectionLength == 0)
+                    .disabled(editorAccess.selectionLength() == 0)
                 Divider()
                 Button("Run All Statements") { runner.run() }
             } label: {
@@ -431,18 +433,31 @@ struct QueryEditorView: View {
         string.isEmpty ? 0 : string.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
     }
 
-    private func firstErrorPosition(in outcomes: [QueryRunner.StatementOutcome]) -> Int? {
-        outcomes.first(where: { $0.errorPosition != nil })?.errorPosition
+    private func editorErrorPosition(in outcomes: [QueryRunner.StatementOutcome]) -> Int? {
+        outcomes.first(where: { $0.editorErrorPosition != nil })?.editorErrorPosition
     }
 
     // MARK: - Run targeting
 
+    /// The editor's live text + selection at click time. Reading the NSTextView
+    /// directly (via `editorAccess`) rather than the `cursor` snapshot is what
+    /// makes partial runs target what's truly selected: the snapshot lags a
+    /// render and is stale once the Run menu grabs first responder. Falls back
+    /// to the runner's SQL with the caret at the start before the editor exists.
+    private func runTarget(_ runner: QueryRunner) -> (text: String, caret: Int, selectionLength: Int) {
+        guard let snap = editorAccess.snapshot() else {
+            return (runner.sql, 0, 0)
+        }
+        return (snap.text, snap.selectedRange.location, snap.selectedRange.length)
+    }
+
     /// ⌘↩ behaviour: run the selection if there is one, else the statement under
     /// the caret, else fall back to the whole editor.
     private func smartRun(_ runner: QueryRunner) {
-        if let selection = selectedText(runner.sql) {
+        let target = runTarget(runner)
+        if let selection = selectedText(in: target.text, location: target.caret, length: target.selectionLength) {
             runner.run(selection)
-        } else if let statement = currentStatement(runner.sql) {
+        } else if let statement = currentStatement(in: target.text, caret: target.caret) {
             runner.run(statement)
         } else {
             runner.run()
@@ -450,32 +465,34 @@ struct QueryEditorView: View {
     }
 
     private func runSelection(_ runner: QueryRunner) {
-        runner.run(selectedText(runner.sql))
+        let target = runTarget(runner)
+        runner.run(selectedText(in: target.text, location: target.caret, length: target.selectionLength))
     }
 
     private func runCurrent(_ runner: QueryRunner) {
-        runner.run(currentStatement(runner.sql))
+        let target = runTarget(runner)
+        runner.run(currentStatement(in: target.text, caret: target.caret))
     }
 
-    /// The currently selected text, or nil when the selection is empty/blank.
-    private func selectedText(_ sql: String) -> String? {
-        guard cursor.selectionLength > 0 else { return nil }
-        let ns = sql as NSString
-        let location = min(cursor.location, ns.length)
-        let length = min(cursor.selectionLength, ns.length - location)
+    /// The selected text, or nil when the selection is empty/blank.
+    private func selectedText(in sql: String, location: Int, length: Int) -> String? {
         guard length > 0 else { return nil }
-        return trimmedOrNil(ns.substring(with: NSRange(location: location, length: length)))
+        let ns = sql as NSString
+        let start = min(location, ns.length)
+        let clampedLength = min(length, ns.length - start)
+        guard clampedLength > 0 else { return nil }
+        return trimmedOrNil(ns.substring(with: NSRange(location: start, length: clampedLength)))
     }
 
     /// The statement straddling the caret, found by walking `;` boundaries while
     /// honouring strings, quoted identifiers, and comments (mirrors
     /// `SQLStatementSplitter`, but in UTF-16 to match the caret offset). Returns
     /// nil when the caret sits in blank space between statements.
-    private func currentStatement(_ sql: String) -> String? {
+    private func currentStatement(in sql: String, caret rawCaret: Int) -> String? {
         let ns = sql as NSString
         let n = ns.length
         guard n > 0 else { return nil }
-        let caret = min(cursor.location, n)
+        let caret = min(rawCaret, n)
 
         let singleQuote: unichar = 39, doubleQuote: unichar = 34, backtick: unichar = 96
         let dash: unichar = 45, slash: unichar = 47, star: unichar = 42

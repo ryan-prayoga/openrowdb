@@ -142,4 +142,27 @@ final class SQLStatementSplitterTests: XCTestCase {
             ["SELECT 'café; naïve'", "SELECT '日本語;'"]
         )
     }
+
+    func testSplitWithOffsetsMapsSecondStatementIntoEditorBuffer() {
+        let sql = "SELECT * FROM \"Auditorium\";\nSELECT id,cinemald FROM \"Auditorium\";"
+        let spans = SQLStatementSplitter.splitWithOffsets(sql)
+        XCTAssertEqual(spans.count, 2)
+        XCTAssertEqual(spans[0].sql, "SELECT * FROM \"Auditorium\"")
+        XCTAssertEqual(spans[0].utf16Offset, 0)
+        XCTAssertEqual(spans[1].sql, "SELECT id,cinemald FROM \"Auditorium\"")
+        let secondStart = (sql as NSString).range(of: "SELECT id").location
+        XCTAssertEqual(spans[1].utf16Offset, secondStart)
+        // Postgres reports position 11 for `cinemald` inside the second statement.
+        let editorPosition = spans[1].utf16Offset + 11
+        let tokenRange = (sql as NSString).range(of: "cinemald")
+        XCTAssertEqual(editorPosition - 1, tokenRange.location)
+    }
+
+    func testSplitWithOffsetsSkipsLeadingWhitespace() {
+        let sql = "\n  SELECT 1  ;\n\n  SELECT 2  \n"
+        let spans = SQLStatementSplitter.splitWithOffsets(sql)
+        XCTAssertEqual(spans.map(\.sql), ["SELECT 1", "SELECT 2"])
+        XCTAssertEqual(spans[0].utf16Offset, (sql as NSString).range(of: "SELECT 1").location)
+        XCTAssertEqual(spans[1].utf16Offset, (sql as NSString).range(of: "SELECT 2").location)
+    }
 }

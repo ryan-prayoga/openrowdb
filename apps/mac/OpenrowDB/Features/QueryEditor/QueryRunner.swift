@@ -19,6 +19,10 @@ final class QueryRunner {
         /// 1-indexed character offset within `sql` where the server pinpointed
         /// the error. Postgres only; nil for MySQL or non-positional errors.
         let errorPosition: Int?
+        /// 1-indexed character offset within the full editor SQL where the
+        /// server error lands. Derived from `errorPosition` plus the statement's
+        /// offset in the buffer that was run.
+        let editorErrorPosition: Int?
 
         var didFail: Bool { error != nil }
     }
@@ -79,19 +83,19 @@ final class QueryRunner {
         currentTask?.cancel()
         let source = override ?? sql
         if override == nil { lastRunSQL = sql }
-        let statements = SQLStatementSplitter.split(source)
-        guard !statements.isEmpty else {
+        let spans = SQLStatementSplitter.splitWithOffsets(source)
+        guard !spans.isEmpty else {
             outcomes = []
             state = .finished
             return
         }
 
         outcomes = []
-        state = .running(progress: "0/\(statements.count)")
-        let captured = statements
+        state = .running(progress: "0/\(spans.count)")
+        let editorBase = Self.editorBaseOffset(for: source, in: sql)
         currentTask = Task { [weak self] in
             guard let self else { return }
-            await self.executeAll(captured)
+            await self.executeAll(spans, editorBase: editorBase)
         }
     }
 
@@ -111,18 +115,26 @@ final class QueryRunner {
         Task { await catalog.refresh() }
     }
 
-    private func executeAll(_ statements: [String]) async {
-        for (index, statement) in statements.enumerated() {
+    private func executeAll(_ spans: [SplitStatement], editorBase: Int) async {
+        for (index, span) in spans.enumerated() {
             if Task.isCancelled { break }
-            state = .running(progress: "\(index)/\(statements.count)")
-            let outcome = await execute(statement)
+            state = .running(progress: "\(index)/\(spans.count)")
+            let outcome = await execute(
+                span.sql,
+                statementOffset: span.utf16Offset,
+                editorBase: editorBase
+            )
             outcomes.append(outcome)
-            await record(original: statement, outcome: outcome)
+            await record(original: span.sql, outcome: outcome)
         }
         state = .finished
     }
 
-    private func execute(_ sql: String) async -> StatementOutcome {
+    private func execute(
+        _ sql: String,
+        statementOffset: Int,
+        editorBase: Int
+    ) async -> StatementOutcome {
         let start = ContinuousClock.now
         do {
             let result = try await manager.run(sql, on: connectionID, database: database)
@@ -132,7 +144,8 @@ final class QueryRunner {
                 durationMs: elapsed,
                 result: result,
                 error: nil,
-                errorPosition: nil
+                errorPosition: nil,
+                editorErrorPosition: nil
             )
         } catch {
             let elapsed = elapsedMs(since: start)
@@ -140,14 +153,24 @@ final class QueryRunner {
             let message = dbError?.userMessage ?? String(describing: error)
             var position: Int?
             if case let .query(_, _, _, p) = dbError { position = p }
+            let editorPosition = position.map { editorBase + statementOffset + $0 }
             return StatementOutcome(
                 sql: sql,
                 durationMs: elapsed,
                 result: nil,
                 error: message,
-                errorPosition: position
+                errorPosition: position,
+                editorErrorPosition: editorPosition
             )
         }
+    }
+
+    /// UTF-16 offset in the full editor buffer where a partial run (`override`)
+    /// begins. Zero when the run covers the whole editor.
+    private static func editorBaseOffset(for source: String, in editorSQL: String) -> Int {
+        guard source != editorSQL else { return 0 }
+        let range = (editorSQL as NSString).range(of: source)
+        return range.location == NSNotFound ? 0 : range.location
     }
 
     private func record(original sql: String, outcome: StatementOutcome) async {

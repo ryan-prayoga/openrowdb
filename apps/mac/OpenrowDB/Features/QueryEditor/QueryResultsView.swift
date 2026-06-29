@@ -44,7 +44,8 @@ struct QueryResultsView: View {
                 sql: outcome.sql,
                 message: error,
                 durationMs: outcome.durationMs,
-                position: outcome.errorPosition
+                position: outcome.errorPosition,
+                editorPosition: outcome.editorErrorPosition
             )
         } else if let result = outcome.result {
             resultPane(sql: outcome.sql, result: result, durationMs: outcome.durationMs)
@@ -74,16 +75,23 @@ struct QueryResultsView: View {
         }
     }
 
-    private func errorPane(sql: String, message: String, durationMs: Int, position: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func errorPane(
+        sql: String,
+        message: String,
+        durationMs: Int,
+        position: Int?,
+        editorPosition: Int?
+    ) -> some View {
+        let jumpPosition = resolvedJumpPosition(statement: position, editor: editorPosition)
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Label("Query failed", systemImage: "xmark.octagon.fill")
                     .foregroundStyle(.red)
                     .font(.headline)
-                if let position, let onJumpToError {
+                if let jumpPosition, let onJumpToError {
                     Spacer()
                     Button {
-                        onJumpToError(position)
+                        onJumpToError(jumpPosition)
                     } label: {
                         Label("Jump to error", systemImage: "arrow.right.circle")
                             .font(.caption)
@@ -107,10 +115,16 @@ struct QueryResultsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture {
-            if let position, let onJumpToError {
-                onJumpToError(position)
+            if let jumpPosition, let onJumpToError {
+                onJumpToError(jumpPosition)
             }
         }
+    }
+
+    /// Position in the full editor buffer for jump/highlight, falling back to
+    /// the statement-local Postgres offset when mapping isn't available.
+    private func resolvedJumpPosition(statement position: Int?, editor editorPosition: Int?) -> Int? {
+        editorPosition ?? position
     }
 
     /// Render the SQL with the offending character highlighted in red. The

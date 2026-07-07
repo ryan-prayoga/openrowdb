@@ -1,4 +1,5 @@
 // TableDataView.swift
+import AppKit
 import OpenrowDBCore
 import SwiftUI
 
@@ -72,6 +73,8 @@ struct TableDataView: View {
     // Inline edit state — shared with ResultsGrid cells via @Observable
     @State private var editState = InlineEditState()
 
+    @State private var bulkInsertParse: TabularPasteParseResult?
+
     private var canMutate: Bool { table.kind == .table && !manager.isReadOnly(connectionID) }
     /// Per-row edit/delete needs a primary key to target exactly one row. Without
     /// one we'd have to match on rendered cell text, which doesn't reliably round
@@ -137,10 +140,23 @@ struct TableDataView: View {
             } message: {
                 Text(mutationFailure?.message ?? "")
             }
+            .sheet(isPresented: bulkInsertPresented) {
+                if let parse = bulkInsertParse {
+                    BulkInsertSheet(
+                        tableName: table.name,
+                        parseResult: parse,
+                        onInsert: { try await performBulkInsert(parse) }
+                    )
+                }
+            }
     }
 
     private var deleteDialogPresented: Binding<Bool> {
         Binding(get: { pendingDeleteRows != nil }, set: { if !$0 { pendingDeleteRows = nil } })
+    }
+
+    private var bulkInsertPresented: Binding<Bool> {
+        Binding(get: { bulkInsertParse != nil }, set: { if !$0 { bulkInsertParse = nil } })
     }
 
     private var inspectorRowID: Int? {
@@ -374,6 +390,9 @@ struct TableDataView: View {
                 } else {
                     Button { beginAddRow() } label: { Label("Add Row", systemImage: "plus") }
                         .help("Insert a new row")
+                    Button { beginPasteRows() } label: { Label("Paste Rows", systemImage: "doc.on.clipboard") }
+                        .help("Insert rows from TSV/CSV on the clipboard")
+                        .keyboardShortcut("v", modifiers: [.command, .shift])
                     GlassIconButton(
                         systemName: "pencil",
                         help: rowActionHelp("Edit selected row"),
@@ -548,6 +567,23 @@ struct TableDataView: View {
         cancelInlineEdit()
         inlineEditorFields = buildFields(mode: .add, initialByName: [:])
         inlineEditorMode = .add
+    }
+
+    private func beginPasteRows() {
+        guard canMutate, !columns.isEmpty else { return }
+        cancelInlineEdit()
+        let clipboard = NSPasteboard.general.string(forType: .string) ?? ""
+        bulkInsertParse = TabularPasteParser.parse(clipboard, tableColumns: columns.map(\.name))
+    }
+
+    private func performBulkInsert(_ parse: TabularPasteParseResult) async throws {
+        for row in parse.rows {
+            let cols = row.assignments.map(\.column)
+            let vals = row.assignments.map(\.value)
+            try await manager.insertRow(into: table, on: connectionID, columns: cols, values: vals)
+        }
+        bulkInsertParse = nil
+        await reloadAfterMutation(clearSelection: true)
     }
 
     @ViewBuilder

@@ -29,6 +29,7 @@ struct ConnectionsSidebar: View {
     @State private var dbCounts: [DBKey: [TableRef.ID: RowCount]] = [:]
     @State private var dbColumns: [DBKey: [TableRef.ID: [ColumnInfo]]] = [:]
     @State private var dbExpandedCols: [DBKey: Set<TableRef.ID>] = [:]
+    @State private var schemaExpanded: Set<SchemaKey> = []
     @State private var dbLoading: Set<DBKey> = []
     @State private var dbError: [DBKey: String] = [:]
 
@@ -238,7 +239,9 @@ struct ConnectionsSidebar: View {
                     for table in visible { appendTable(&out, table, key: key, conn: conn, level: 2) }
                 } else {
                     for schema in schemas {
+                        let schemaKey = SchemaKey(connectionID: key.connectionID, database: key.database, schema: schema)
                         out.append(.schema(key, schema))
+                        guard schemaVisible(schemaKey) else { continue }
                         for table in visible where table.schema == schema {
                             appendTable(&out, table, key: key, conn: conn, level: 3)
                         }
@@ -290,11 +293,8 @@ struct ConnectionsSidebar: View {
             TreeRow(level: 2, extraLeading: 20) {
                 Text(searching ? "No matches" : "No tables").foregroundStyle(.secondary).font(.callout)
             }
-        case .schema(_, let schema):
-            TreeRow(level: 2, extraLeading: 20) {
-                Image(systemName: "folder").foregroundStyle(.secondary).imageScale(.small)
-                Text(schema).font(.callout).foregroundStyle(.secondary)
-            }
+        case .schema(let key, let schema):
+            schemaRow(key: key, schema: schema)
         case .table(let key, let conn, let table, let level):
             tableRow(table, key: key, conn: conn, level: level)
         case .column(let key, let table, let column, let level):
@@ -355,6 +355,26 @@ struct ConnectionsSidebar: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func schemaRow(key: DBKey, schema: String) -> some View {
+        let schemaKey = SchemaKey(connectionID: key.connectionID, database: key.database, schema: schema)
+        let expanded = schemaVisible(schemaKey)
+        Button(action: { toggleSchema(schemaKey) }) {
+            TreeRow(level: 2, extraLeading: 20) {
+                ChevronGlyph(expanded: expanded)
+                Image(systemName: expanded ? "folder.fill" : "folder")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.small)
+                Text(schema).font(.callout)
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(SidebarRowStyle())
+        .help("Schema \(schema)")
+        .accessibilityLabel("Schema \(schema)")
+        .accessibilityHint(expanded ? "Collapse schema" : "Expand schema")
     }
 
     @ViewBuilder
@@ -572,6 +592,20 @@ struct ConnectionsSidebar: View {
         }
     }
 
+    private func toggleSchema(_ key: SchemaKey) {
+        if schemaExpanded.contains(key) {
+            schemaExpanded.remove(key)
+        } else {
+            schemaExpanded.insert(key)
+        }
+    }
+
+    /// Schemas auto-expand while filtering so matching tables stay visible.
+    private func schemaVisible(_ key: SchemaKey) -> Bool {
+        if !search.isEmpty { return true }
+        return schemaExpanded.contains(key)
+    }
+
     private func loadTables(key: DBKey, conn: Connection) async {
         dbLoading.insert(key)
         dbError.removeValue(forKey: key)
@@ -782,6 +816,12 @@ struct ConnectionsSidebar: View {
 private struct DBKey: Hashable {
     let connectionID: UUID
     let database: String
+}
+
+private struct SchemaKey: Hashable {
+    let connectionID: UUID
+    let database: String
+    let schema: String
 }
 
 private struct DropDBTarget {

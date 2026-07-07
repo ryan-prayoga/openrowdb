@@ -45,6 +45,7 @@ struct ShortcutsHelpView: View {
         ]),
         ShortcutGroup(title: "Table Viewer — Row Editing", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Save inline edit or insert row"),
+            ShortcutEntry(keys: ["⇧", "⌘", "V"], description: "Paste rows from TSV/CSV"),
             ShortcutEntry(keys: ["Esc"], description: "Cancel inline edit or insert panel"),
         ]),
         ShortcutGroup(title: "Sidebar", entries: [

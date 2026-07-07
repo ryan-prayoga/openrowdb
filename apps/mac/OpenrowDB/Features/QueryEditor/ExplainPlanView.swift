@@ -47,7 +47,7 @@ struct ExplainPlanView: View {
             ResultsGrid(
                 result: result,
                 sortOrder: .constant([]),
-                selection: .constant(nil)
+                selection: .constant([])
             )
         } else if loading {
             ProgressView("Running EXPLAIN…")

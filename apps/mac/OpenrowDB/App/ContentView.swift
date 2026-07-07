@@ -4,10 +4,13 @@ import OpenrowDBCore
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(ConnectionManager.self) private var manager
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     @Binding var showingNewConnection: Bool
     @Binding var newConnectionPreset: ConnectionFormPreset?
+    var globalSearch: GlobalSearchCoordinator
+    @Environment(ConnectionManager.self) private var manager
+    @Environment(QueryHistoryStore.self) private var history
+    @Environment(WorkspaceTabsState.self) private var tabs
     @State private var selection: UUID?
     @State private var editingConnection: Connection?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -41,6 +44,29 @@ struct ContentView: View {
             ConnectionSheet(existing: connection)
         }
         .background(refreshShortcut)
+        .onAppear { wireGlobalSearch() }
+    }
+
+    private func wireGlobalSearch() {
+        globalSearch.onSelectConnection = { selection = $0 }
+        globalSearch.onOpenTable = { connectionID, table in
+            tabs.openTableTab(table, for: connectionID)
+        }
+        globalSearch.onSelectTab = { connectionID, tab in
+            tabs.select(tab, for: connectionID)
+        }
+        globalSearch.onLoadHistoryQuery = { connectionID, sql in
+            let tab = tabs.openQueryTab(for: connectionID)
+            if case .query(let id) = tab {
+                let runner = tabs.runner(
+                    for: id,
+                    connectionID: connectionID,
+                    manager: manager,
+                    history: history
+                )
+                runner.sql = sql
+            }
+        }
     }
 
     /// Window-wide ⌘R — fires via the responder chain even when the SQL editor
@@ -59,7 +85,11 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(showingNewConnection: .constant(false), newConnectionPreset: .constant(nil))
+    ContentView(
+        showingNewConnection: .constant(false),
+        newConnectionPreset: .constant(nil),
+        globalSearch: GlobalSearchCoordinator()
+    )
         .environment(
             ConnectionManager(
                 store: try! ConnectionStore(

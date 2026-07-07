@@ -27,7 +27,9 @@ final class InlineEditState {
 struct ResultsGrid: View {
     let result: QueryResult
     @Binding var sortOrder: [ColumnComparator]
-    @Binding var selection: Int?
+    @Binding var selection: Set<Int>
+    /// When set, column resize state is restored and saved across sessions.
+    var gridID: String? = nil
     /// Width of the translucent NavigationSplitView sidebar that overlaps the
     /// detail's leading edge (the leading safe-area inset), threaded down from
     /// `WorkspaceView`. The hosted NSTableView fills the full window width and
@@ -51,7 +53,7 @@ struct ResultsGrid: View {
     var onCancelEdit: (() -> Void)? = nil
     var onDoubleClick: ((Int) -> Void)? = nil
     var onEdit: ((Int) -> Void)? = nil
-    var onDelete: ((Int) -> Void)? = nil
+    var onDeleteRows: ((Set<Int>) -> Void)? = nil
     var onDuplicate: ((Int) -> Void)? = nil
     /// When set, context menu offers Copy as INSERT / UPDATE.
     var sqlCopy: RowSQLCopyContext? = nil
@@ -63,6 +65,8 @@ struct ResultsGrid: View {
     private var rows: [ResultRow] {
         result.rows.enumerated().map { ResultRow(id: $0.offset, cells: $0.element) }
     }
+
+    @State private var columnCustomization = TableColumnCustomization<ResultRow>()
 
     var body: some View {
         if columns.isEmpty {
@@ -85,7 +89,7 @@ struct ResultsGrid: View {
     private func gridTable(sortOrder: Binding<[ColumnComparator]>?) -> some View {
         if let sortOrder {
             gridChrome(
-                Table(rows, selection: $selection, sortOrder: sortOrder) {
+                Table(rows, selection: $selection, sortOrder: sortOrder, columnCustomization: $columnCustomization) {
                     TableColumnForEach(columns) { column in
                         TableColumn(
                             column.name,
@@ -98,7 +102,7 @@ struct ResultsGrid: View {
             )
         } else {
             gridChrome(
-                Table(rows, selection: $selection) {
+                Table(rows, selection: $selection, columnCustomization: $columnCustomization) {
                     TableColumnForEach(columns) { column in
                         TableColumn(column.name) { row in
                             gridCell(column: column, row: row)
@@ -123,36 +127,13 @@ struct ResultsGrid: View {
             .accessibilityLabel(gridAccessibilityLabel)
             .accessibilityHint(sortable ? "Click column headers to sort" : "Read-only result set")
             .contextMenu(forSelectionType: Int.self) { items in
-                if let id = items.first {
-                    if canMutate {
-                        Button { onEdit?(id) } label: {
-                            Label("Edit Row", systemImage: "pencil")
-                        }
-                        Button { onDuplicate?(id) } label: {
-                            Label("Duplicate Row", systemImage: "plus.square.on.square")
-                        }
-                        Divider()
-                        Button(role: .destructive) { onDelete?(id) } label: {
-                            Label("Delete Row", systemImage: "trash")
-                        }
-                        Divider()
-                    }
-                    Button { copyRow(id) } label: {
-                        Label("Copy as TSV", systemImage: "doc.on.clipboard")
-                    }
-                    if let sqlCopy {
-                        Button { copyRowAsInsert(id, context: sqlCopy) } label: {
-                            Label("Copy as INSERT", systemImage: "text.append")
-                        }
-                        if !sqlCopy.primaryKeys.isEmpty {
-                            Button { copyRowAsUpdate(id, context: sqlCopy) } label: {
-                                Label("Copy as UPDATE", systemImage: "text.badge.checkmark")
-                            }
-                        }
-                    }
-                }
+                selectionContextMenu(items)
             } primaryAction: { items in
                 if let id = items.first { onDoubleClick?(id) }
+            }
+            .onAppear { restoreColumnCustomization() }
+            .onChange(of: columnCustomization) { _, customization in
+                persistColumnCustomization(customization)
             }
             .ignoresSafeArea(.container, edges: leadingInset > 0 ? .leading : [])
             .padding(.leading, leadingInset)
@@ -172,11 +153,75 @@ struct ResultsGrid: View {
         }
     }
 
-    private func copyRow(_ id: Int) {
-        guard result.rows.indices.contains(id) else { return }
-        let row = result.rows[id]
-        let text = zip(result.columns, row).map { "\($0)\t\($1 ?? "NULL")" }.joined(separator: "\n")
-        paste(text)
+    @ViewBuilder
+    private func selectionContextMenu(_ items: Set<Int>) -> some View {
+        let targetIDs = contextTargetIDs(items)
+        if !targetIDs.isEmpty {
+            if targetIDs.count == 1, let id = targetIDs.first {
+                if canMutate {
+                    Button { onEdit?(id) } label: {
+                        Label("Edit Row", systemImage: "pencil")
+                    }
+                    Button { onDuplicate?(id) } label: {
+                        Label("Duplicate Row", systemImage: "plus.square.on.square")
+                    }
+                    Divider()
+                    Button(role: .destructive) { onDeleteRows?(targetIDs) } label: {
+                        Label("Delete Row", systemImage: "trash")
+                    }
+                    Divider()
+                }
+                Button { copyRows(targetIDs) } label: {
+                    Label("Copy as TSV", systemImage: "doc.on.clipboard")
+                }
+                if let sqlCopy {
+                    Button { copyRowAsInsert(id, context: sqlCopy) } label: {
+                        Label("Copy as INSERT", systemImage: "text.append")
+                    }
+                    if !sqlCopy.primaryKeys.isEmpty {
+                        Button { copyRowAsUpdate(id, context: sqlCopy) } label: {
+                            Label("Copy as UPDATE", systemImage: "text.badge.checkmark")
+                        }
+                    }
+                }
+            } else {
+                Button { copyRows(targetIDs) } label: {
+                    Label("Copy \(targetIDs.count) Rows as TSV", systemImage: "doc.on.clipboard")
+                }
+                if canMutate, onDeleteRows != nil {
+                    Divider()
+                    Button(role: .destructive) { onDeleteRows?(targetIDs) } label: {
+                        Label("Delete \(targetIDs.count) Rows", systemImage: "trash")
+                    }
+                }
+            }
+        }
+    }
+
+    private func contextTargetIDs(_ items: Set<Int>) -> Set<Int> {
+        if items.isEmpty { return selection }
+        if selection.isSuperset(of: items) { return selection }
+        return items
+    }
+
+    private func restoreColumnCustomization() {
+        guard let gridID, let saved = GridColumnCustomizationStore.load(gridID: gridID) else { return }
+        columnCustomization = saved
+    }
+
+    private func persistColumnCustomization(_ customization: TableColumnCustomization<ResultRow>) {
+        guard let gridID else { return }
+        GridColumnCustomizationStore.save(gridID: gridID, customization)
+    }
+
+    private func copyRows(_ ids: Set<Int>) {
+        let sorted = ids.sorted()
+        let lines = sorted.compactMap { id -> String? in
+            guard result.rows.indices.contains(id) else { return nil }
+            return result.rows[id].map { $0 ?? "NULL" }.joined(separator: "\t")
+        }
+        guard !lines.isEmpty else { return }
+        paste(lines.joined(separator: "\n"))
     }
 
     private func copyRowAsInsert(_ id: Int, context: RowSQLCopyContext) {

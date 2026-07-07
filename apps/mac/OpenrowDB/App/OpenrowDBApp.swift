@@ -33,13 +33,15 @@ struct OpenrowDBApp: App {
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var openConnectionAfterOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var showingShortcuts = false
+    @State private var globalSearch = GlobalSearchCoordinator()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView(
                 showingNewConnection: $showingNewConnection,
-                newConnectionPreset: $newConnectionPreset
+                newConnectionPreset: $newConnectionPreset,
+                globalSearch: globalSearch
             )
                 .environment(manager)
                 .environment(history)
@@ -47,6 +49,7 @@ struct OpenrowDBApp: App {
                 .environment(tabs)
                 .environment(refreshCoordinator)
                 .environment(preferences)
+                .environment(globalSearch)
                 .task {
                     try? manager.reload()
                     tabs.sessionStore = sessionStore
@@ -81,6 +84,9 @@ struct OpenrowDBApp: App {
                 .sheet(isPresented: $showingShortcuts) {
                     ShortcutsHelpView()
                 }
+                .sheet(isPresented: $globalSearch.isPresented) {
+                    GlobalSearchView()
+                }
         }
         .windowStyle(.hiddenTitleBar)
         // Drive the window min size from column widths, not a content frame, so the
@@ -114,6 +120,12 @@ struct OpenrowDBApp: App {
             CommandGroup(after: .pasteboard) {
                 Button("Find…") { EditorCommandCenter.shared.find() }
                     .keyboardShortcut("f", modifiers: .command)
+            }
+            CommandGroup(before: .help) {
+                Button("Search…") {
+                    globalSearch.present()
+                }
+                .keyboardShortcut("k", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
                 Button("Welcome to OpenrowDB…") {

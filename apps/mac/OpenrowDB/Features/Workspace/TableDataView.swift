@@ -33,7 +33,7 @@ struct TableDataView: View {
     @State private var loadingRows = false
     @State private var totalRows: RowCount?
     @State private var sortOrder: [ColumnComparator] = []
-    @State private var selectedRowID: Int?
+    @State private var selectedRowIDs: Set<Int> = []
     @State private var showRowInspector = false
     @State private var columns: [ColumnInfo] = []
     @State private var columnTypes: [String: String] = [:]
@@ -61,7 +61,7 @@ struct TableDataView: View {
     @State private var rowsGeneration = 0
     @State private var countGeneration = 0
 
-    @State private var pendingDeleteRow: Int?
+    @State private var pendingDeleteRows: Set<Int>?
     @State private var mutationFailure: DatabaseErrorPresenter.Failure?
     @State private var isResetting = false
     @State private var resetGeneration: UInt64 = 0
@@ -112,7 +112,7 @@ struct TableDataView: View {
             .onChange(of: filterValue) { handleFilterChange() }
             .onChange(of: filterColumn) { handleFilterChange() }
             .onChange(of: filterOperator) { handleFilterChange() }
-            .onChange(of: selectedRowID) { previous, current in
+            .onChange(of: selectedRowIDs) { previous, current in
                 handleSelectionChange(previous: previous, current: current)
             }
     }
@@ -120,14 +120,14 @@ struct TableDataView: View {
     private var contentWithDialogs: some View {
         content
             .confirmationDialog(
-                "Delete this row?",
+                deleteDialogTitle,
                 isPresented: deleteDialogPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete", role: .destructive) { confirmDelete() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes the row. This can't be undone.")
+                Text(deleteDialogMessage)
             }
             .alert(
                 mutationFailure?.title ?? "Row change failed",
@@ -140,12 +140,29 @@ struct TableDataView: View {
     }
 
     private var deleteDialogPresented: Binding<Bool> {
-        Binding(get: { pendingDeleteRow != nil }, set: { if !$0 { pendingDeleteRow = nil } })
+        Binding(get: { pendingDeleteRows != nil }, set: { if !$0 { pendingDeleteRows = nil } })
+    }
+
+    private var inspectorRowID: Int? {
+        selectedRowIDs.count == 1 ? selectedRowIDs.first : nil
+    }
+
+    private var deleteDialogTitle: String {
+        guard let count = pendingDeleteRows?.count else { return "Delete rows?" }
+        return count == 1 ? "Delete this row?" : "Delete \(count) rows?"
+    }
+
+    private var deleteDialogMessage: String {
+        guard let count = pendingDeleteRows?.count else { return "" }
+        if count == 1 {
+            return "This permanently deletes the row. This can't be undone."
+        }
+        return "This permanently deletes \(count) rows. This can't be undone."
     }
 
     private func handlePageChange() {
         guard !isResetting else { return }
-        selectedRowID = nil
+        selectedRowIDs = []
         Task { await loadRows() }
     }
 
@@ -171,9 +188,9 @@ struct TableDataView: View {
         scheduleColumnFilter()
     }
 
-    private func handleSelectionChange(previous: Int?, current: Int?) {
-        if previous == nil, current != nil { showRowInspector = true }
-        if let editingRow = editState.rowID, current != editingRow {
+    private func handleSelectionChange(previous: Set<Int>, current: Set<Int>) {
+        if previous.isEmpty, !current.isEmpty { showRowInspector = true }
+        if let editingRow = editState.rowID, !current.contains(editingRow) {
             cancelInlineEdit()
         }
     }
@@ -208,7 +225,8 @@ struct TableDataView: View {
                 ResultsGrid(
                     result: result,
                     sortOrder: $sortOrder,
-                    selection: $selectedRowID,
+                    selection: $selectedRowIDs,
+                    gridID: table.id,
                     // 0: the grid no longer abuts the translucent sidebar through
                     // an `.inspector` column (which anchored the NSTableView at the
                     // window edge). As a plain pane it inherits the leading safe
@@ -219,15 +237,15 @@ struct TableDataView: View {
                     onCommitEdit: { commitInlineEdit() },
                     onCancelEdit: { cancelInlineEdit() },
                     onDoubleClick: { id in
-                        selectedRowID = id
+                        selectedRowIDs = [id]
                         if canEditRows { beginEditRow() }
                     },
                     onEdit: { id in
-                        selectedRowID = id
+                        selectedRowIDs = [id]
                         if canEditRows { beginEditRow() }
                     },
-                    onDelete: { id in
-                        if canEditRows { pendingDeleteRow = id }
+                    onDeleteRows: { ids in
+                        if canEditRows { pendingDeleteRows = ids }
                     },
                     onDuplicate: { id in
                         if canMutate { duplicateRow(id) }
@@ -257,13 +275,7 @@ struct TableDataView: View {
                 if showRowInspector {
                     HStack(spacing: 0) {
                         Divider()
-                        RowInspector(
-                            result: result,
-                            selectedRowID: selectedRowID,
-                            columnTypes: columnTypes,
-                            foreignKeys: foreignKeys,
-                            onFollowFK: followForeignKey
-                        )
+                        rowInspectorPane(result: result)
                         .frame(width: 300)
                     }
                     .transition(.move(edge: .trailing))
@@ -367,13 +379,13 @@ struct TableDataView: View {
                         help: rowActionHelp("Edit selected row"),
                         accessibility: "Edit row"
                     ) { beginEditRow() }
-                    .disabled(selectedRowID == nil || !canEditRows)
+                    .disabled(selectedRowIDs.count != 1 || !canEditRows)
                     GlassIconButton(
                         systemName: "trash",
-                        help: rowActionHelp("Delete selected row"),
+                        help: rowActionHelp(selectedRowIDs.count > 1 ? "Delete selected rows" : "Delete selected row"),
                         accessibility: "Delete row"
-                    ) { pendingDeleteRow = selectedRowID }
-                    .disabled(selectedRowID == nil || !canEditRows)
+                    ) { pendingDeleteRows = selectedRowIDs }
+                    .disabled(selectedRowIDs.isEmpty || !canEditRows)
                 }
             }
         }
@@ -538,9 +550,28 @@ struct TableDataView: View {
         inlineEditorMode = .add
     }
 
+    @ViewBuilder
+    private func rowInspectorPane(result: QueryResult) -> some View {
+        if selectedRowIDs.count > 1 {
+            PlaceholderView(
+                title: "\(selectedRowIDs.count) rows selected",
+                subtitle: "Select one row to inspect values, or use the context menu for bulk copy and delete.",
+                systemImage: "checkmark.circle"
+            )
+        } else {
+            RowInspector(
+                result: result,
+                selectedRowID: inspectorRowID,
+                columnTypes: columnTypes,
+                foreignKeys: foreignKeys,
+                onFollowFK: followForeignKey
+            )
+        }
+    }
+
     private func beginEditRow() {
         inlineEditorMode = nil
-        guard let index = selectedRowID, let preds = predicates(forRowAt: index) else { return }
+        guard let index = inspectorRowID, let preds = predicates(forRowAt: index) else { return }
         editState.predicates = preds
         editState.values = initialValues(forRowAt: index)
         editState.rowID = index
@@ -605,14 +636,18 @@ struct TableDataView: View {
     }
 
     private func confirmDelete() {
-        guard let index = pendingDeleteRow, let predicates = predicates(forRowAt: index) else { return }
-        pendingDeleteRow = nil
+        guard let rows = pendingDeleteRows, !rows.isEmpty else { return }
+        pendingDeleteRows = nil
         Task {
             do {
-                try await manager.deleteRow(table, on: connectionID, predicates: predicates)
+                for index in rows.sorted() {
+                    guard let predicates = predicates(forRowAt: index) else { continue }
+                    try await manager.deleteRow(table, on: connectionID, predicates: predicates)
+                }
                 await reloadAfterMutation(clearSelection: true)
             } catch {
-                mutationFailure = DatabaseErrorPresenter.failure(title: "Couldn't delete row", error: error)
+                let title = rows.count == 1 ? "Couldn't delete row" : "Couldn't delete rows"
+                mutationFailure = DatabaseErrorPresenter.failure(title: title, error: error)
             }
         }
     }
@@ -666,7 +701,7 @@ struct TableDataView: View {
         sortOrder = []
         result = nil
         totalRows = nil
-        selectedRowID = nil
+        selectedRowIDs = []
         columns = []
         columnTypes = [:]
         primaryKeys = []
@@ -701,7 +736,7 @@ struct TableDataView: View {
             guard generation == searchGeneration else { return }
             appliedSearch = search
             page = 0
-            selectedRowID = nil
+            selectedRowIDs = []
             Task {
                 await loadCount()
                 await loadRows()
@@ -718,7 +753,7 @@ struct TableDataView: View {
             appliedFilterValue = filterValue
             appliedFilterOperator = filterOperator
             page = 0
-            selectedRowID = nil
+            selectedRowIDs = []
             Task {
                 await loadCount()
                 await loadRows()
@@ -727,7 +762,7 @@ struct TableDataView: View {
     }
 
     private func reloadAfterMutation(clearSelection: Bool) async {
-        if clearSelection { selectedRowID = nil }
+        if clearSelection { selectedRowIDs = [] }
         await loadCount()
         await loadRows()
         onMutated()
@@ -787,7 +822,7 @@ struct TableDataView: View {
         // Selection is a row index into the *current* page; any reload (sort,
         // page, page-size, search, post-mutation) invalidates it, so clear it
         // first — otherwise Edit/Delete could target the wrong row.
-        selectedRowID = nil
+        selectedRowIDs = []
         rowsGeneration += 1
         let generation = rowsGeneration
         loadingRows = true

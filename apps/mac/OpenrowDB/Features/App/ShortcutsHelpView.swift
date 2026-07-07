@@ -26,6 +26,7 @@ struct ShortcutsHelpView: View {
             ShortcutEntry(keys: ["⌘", "T"], description: "New query tab"),
             ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar and active view"),
             ShortcutEntry(keys: ["⌘", "/"], description: "Keyboard shortcuts help"),
+            ShortcutEntry(keys: ["⌘", "K"], description: "Search connections, tables, tabs, history"),
         ]),
         ShortcutGroup(title: "Query Editor", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Run query"),
@@ -40,6 +41,7 @@ struct ShortcutsHelpView: View {
         ]),
         ShortcutGroup(title: "Browse / Table Viewer", entries: [
             ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar, row counts, and current table page"),
+            ShortcutEntry(keys: ["⌘", "click"], description: "Multi-select rows (with Shift for range)"),
         ]),
         ShortcutGroup(title: "Table Viewer — Row Editing", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Save inline edit or insert row"),

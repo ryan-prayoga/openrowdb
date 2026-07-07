@@ -111,7 +111,10 @@ export default function Aurora({
   const reduced = useReducedMotion();
   const ctn = useRef<HTMLDivElement>(null);
   const cfg = useRef({ colorStops, amplitude, blend, speed });
-  cfg.current = { colorStops, amplitude, blend, speed };
+
+  useEffect(() => {
+    cfg.current = { colorStops, amplitude, blend, speed };
+  }, [amplitude, blend, colorStops, speed]);
 
   useEffect(() => {
     if (reduced) return; // honor prefers-reduced-motion → static fallback only

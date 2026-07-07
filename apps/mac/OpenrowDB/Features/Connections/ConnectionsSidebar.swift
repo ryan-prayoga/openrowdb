@@ -815,19 +815,11 @@ private struct ConnHeaderRow: View {
                 .updating($pressing) { _, state, _ in state = true }
         )
         .contextMenu {
+            // "New Table" lives on the database row's menu, not here — a table
+            // belongs to a specific database, so offering it at the connection
+            // level (with a database submenu) read as misplaced. The connection
+            // menu only creates databases.
             if canCreateTable {
-                if newTableDatabases.count > 1 {
-                    Menu("New Table") {
-                        ForEach(newTableDatabases, id: \.self) { db in
-                            Button(db) { onNewTable(db) }
-                        }
-                    }
-                } else {
-                    Button("New Table…") {
-                        if let db = newTableDatabases.first { onNewTable(db) }
-                        else { onNewTableUnloaded() }
-                    }
-                }
                 Button("New Database…") { onNewDatabase() }
                 Divider()
             }
@@ -841,6 +833,26 @@ private struct ConnHeaderRow: View {
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }
+        // The connect/disconnect affordance is otherwise only reachable through
+        // a double-tap gesture or the right-click menu — neither of which is
+        // exposed to assistive tech (VoiceOver) or UI automation. Make the row
+        // a button whose default press connects, so it's operable without a
+        // pointer; secondary actions cover the rest.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(connection.name)
+        .accessibilityValue(status.a11yLabel)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Selects and connects")
+        // Synthetic AXPress doesn't fire SwiftUI's tap gestures, so the default
+        // action mirrors a click: select the connection (reveals its workspace)
+        // and connect if it isn't already.
+        .accessibilityAction {
+            onSingleTap()
+            if status != .connected { onConnect() }
+        }
+        .accessibilityAction(named: "Disconnect") { onDisconnect() }
+        .accessibilityAction(named: "Refresh") { onRefresh() }
+        .accessibilityAction(named: "Edit") { onEdit() }
     }
 }
 
@@ -884,6 +896,18 @@ private struct ChevronGlyph: View {
             .frame(width: 12)
             .contentShape(.rect)
             .animation(.easeInOut(duration: 0.15), value: expanded)
+    }
+}
+
+private extension ConnectionManager.Status {
+    /// Spoken/automation description of the connection state.
+    var a11yLabel: String {
+        switch self {
+        case .connected: "Connected"
+        case .connecting: "Connecting"
+        case .disconnected: "Disconnected"
+        case .failed(let message): "Failed: \(message)"
+        }
     }
 }
 

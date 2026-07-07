@@ -346,11 +346,7 @@ struct TableDataView: View {
 
             Spacer()
 
-            if manager.isReadOnly(connectionID) {
-                Label("Read-only", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else if canMutate {
+            if canMutate {
                 if editState.rowID != nil {
                     Button { cancelInlineEdit() } label: { Label("Cancel", systemImage: "xmark") }
                         .keyboardShortcut(.cancelAction)

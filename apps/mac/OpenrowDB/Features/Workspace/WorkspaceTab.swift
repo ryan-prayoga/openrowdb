@@ -60,6 +60,10 @@ final class WorkspaceTabsState {
     @ObservationIgnored
     private(set) var structureMeta: [UUID: StructureTabMeta] = [:]
 
+    /// Optional user-assigned titles for query tabs (falls back to "Query N").
+    @ObservationIgnored
+    private var queryTabTitles: [UUID: String] = [:]
+
     func runner(
         for tabID: UUID,
         connectionID: UUID,
@@ -87,6 +91,24 @@ final class WorkspaceTabsState {
     /// user types. Returns false when no runner exists for the tab yet.
     func isQueryDirty(_ tabID: UUID) -> Bool {
         runnersByTab[tabID]?.isDirty ?? false
+    }
+
+    func queryTabTitle(for tabID: UUID) -> String? {
+        queryTabTitles[tabID]
+    }
+
+    func setQueryTabTitle(_ title: String?, for tabID: UUID, connectionID: UUID) {
+        if let title {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                queryTabTitles[tabID] = nil
+            } else {
+                queryTabTitles[tabID] = trimmed
+            }
+        } else {
+            queryTabTitles[tabID] = nil
+        }
+        schedulePersist(for: connectionID)
     }
 
     func selection(for connectionID: UUID) -> WorkspaceTab? {
@@ -237,7 +259,9 @@ final class WorkspaceTabsState {
         tabsByConnection[connectionID] = current
 
         switch tab {
-        case .query(let id): runnersByTab[id] = nil
+        case .query(let id):
+            runnersByTab[id] = nil
+            queryTabTitles[id] = nil
         case .structure(let id): structureMeta[id] = nil
         case .table(let ref):
             tableFilters[ref.id] = nil
@@ -259,7 +283,9 @@ final class WorkspaceTabsState {
     func reset(for connectionID: UUID) {
         for tab in tabsByConnection[connectionID] ?? [] {
             switch tab {
-            case .query(let id): runnersByTab[id] = nil
+            case .query(let id):
+            runnersByTab[id] = nil
+            queryTabTitles[id] = nil
             case .structure(let id): structureMeta[id] = nil
             case .table(let ref): tableFilters[ref.id] = nil
             }

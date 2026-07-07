@@ -10,6 +10,10 @@ struct WorkspaceView: View {
     @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
 
+    @State private var pendingCloseTab: WorkspaceTab?
+    @State private var renamingQueryTab: UUID?
+    @State private var renameTabText = ""
+
     private var connection: Connection? {
         manager.connections.first { $0.id == connectionID }
     }
@@ -22,7 +26,11 @@ struct WorkspaceView: View {
         if let connection {
             VStack(spacing: 0) {
                 if isConnected {
-                    TabStrip(connectionID: connectionID)
+                    TabStrip(
+                        connectionID: connectionID,
+                        onAttemptClose: attemptClose,
+                        onRenameQueryTab: beginRenameQueryTab
+                    )
                     Divider()
                     tabContent
                 } else {
@@ -43,11 +51,40 @@ struct WorkspaceView: View {
                 }
                 if connection.isReadOnly {
                     ToolbarItem(placement: .primaryAction) {
-                        Label("Read-only", systemImage: "lock.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                        ReadOnlyBadge()
                     }
                 }
+            }
+            .confirmationDialog(
+                "Close this query tab?",
+                isPresented: Binding(
+                    get: { pendingCloseTab != nil },
+                    set: { if !$0 { pendingCloseTab = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Close", role: .destructive) {
+                    if let tab = pendingCloseTab {
+                        closeTab(tab)
+                    }
+                    pendingCloseTab = nil
+                }
+                Button("Cancel", role: .cancel) { pendingCloseTab = nil }
+            } message: {
+                Text("This tab has SQL that hasn't been run yet. Closing discards your edits.")
+            }
+            .alert(
+                "Rename Query Tab",
+                isPresented: Binding(
+                    get: { renamingQueryTab != nil },
+                    set: { if !$0 { renamingQueryTab = nil } }
+                )
+            ) {
+                TextField("Tab name", text: $renameTabText)
+                Button("Rename") { commitTabRename() }
+                Button("Cancel", role: .cancel) { renamingQueryTab = nil }
+            } message: {
+                Text("Enter a name for this query tab.")
             }
             .background(shortcutCatchers)
             .onChange(of: isConnected) { _, connected in
@@ -85,7 +122,9 @@ struct WorkspaceView: View {
 
             Button("") {
                 guard isConnected else { return }
-                tabs.closeSelectedTab(for: connectionID)
+                if let selected = tabs.selection(for: connectionID) {
+                    attemptClose(selected)
+                }
             }
             .keyboardShortcut("w", modifiers: .command)
             .opacity(0)
@@ -195,6 +234,31 @@ struct WorkspaceView: View {
     private var isConnected: Bool { status == .connected }
     private var isConnecting: Bool { status == .connecting }
 
+    private func attemptClose(_ tab: WorkspaceTab) {
+        if case .query(let id) = tab, tabs.isQueryDirty(id) {
+            pendingCloseTab = tab
+        } else {
+            closeTab(tab)
+        }
+    }
+
+    private func closeTab(_ tab: WorkspaceTab) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            tabs.closeTab(tab, for: connectionID)
+        }
+    }
+
+    private func beginRenameQueryTab(_ tabID: UUID) {
+        renameTabText = tabs.queryTabTitle(for: tabID) ?? ""
+        renamingQueryTab = tabID
+    }
+
+    private func commitTabRename() {
+        guard let tabID = renamingQueryTab else { return }
+        tabs.setQueryTabTitle(renameTabText, for: tabID, connectionID: connectionID)
+        renamingQueryTab = nil
+    }
+
 }
 
 // MARK: - Tab strip
@@ -204,6 +268,8 @@ struct WorkspaceView: View {
 private struct TabStrip: View {
     @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
+    let onAttemptClose: (WorkspaceTab) -> Void
+    let onRenameQueryTab: (UUID) -> Void
 
     private var openTabs: [WorkspaceTab] {
         tabs.tabs(for: connectionID)
@@ -230,11 +296,8 @@ private struct TabStrip: View {
                                         tabs.select(tab, for: connectionID)
                                     }
                                 },
-                                onClose: {
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        tabs.closeTab(tab, for: connectionID)
-                                    }
-                                }
+                                onClose: { onAttemptClose(tab) },
+                                onRename: renameAction(for: tab)
                             )
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         }
@@ -265,9 +328,18 @@ private struct TabStrip: View {
         return false
     }
 
+    private func renameAction(for tab: WorkspaceTab) -> (() -> Void)? {
+        if case .query(let id) = tab {
+            return { onRenameQueryTab(id) }
+        }
+        return nil
+    }
+
     private func label(for tab: WorkspaceTab, index: Int) -> String {
         switch tab {
-        case .query: return "Query \(queryIndex(for: index))"
+        case .query(let id):
+            if let custom = tabs.queryTabTitle(for: id) { return custom }
+            return "Query \(queryIndex(for: index))"
         case .table(let ref): return ref.name
         case .structure(let id):
             if let existing = tabs.structureMeta[id]?.existingTable {
@@ -307,6 +379,7 @@ private struct TabChip: View {
     let isDirty: Bool
     let onSelect: () -> Void
     let onClose: (() -> Void)?
+    var onRename: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -316,6 +389,15 @@ private struct TabChip: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .contextMenu {
+            if let onRename {
+                Button("Rename…") { onRename() }
+                Divider()
+            }
+            if let onClose {
+                Button("Close Tab", role: .destructive) { onClose() }
+            }
+        }
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.12), value: isHovered)

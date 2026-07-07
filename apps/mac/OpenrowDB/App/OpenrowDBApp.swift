@@ -29,6 +29,7 @@ struct OpenrowDBApp: App {
     @State private var refreshCoordinator = RefreshCoordinator()
     @State private var showingNewConnection = false
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
+    @State private var openConnectionAfterOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var showingShortcuts = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -52,9 +53,11 @@ struct OpenrowDBApp: App {
                     }
                 }
                 .sheet(isPresented: $showingOnboarding, onDismiss: {
-                    // onDismiss fires after the sheet animation completes —
-                    // safe to present another sheet here with no race condition.
-                    showingNewConnection = true
+                    // First launch chains into New Connection; replays from Help do not.
+                    if openConnectionAfterOnboarding {
+                        showingNewConnection = true
+                        openConnectionAfterOnboarding = false
+                    }
                 }) {
                     OnboardingView {
                         UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
@@ -78,6 +81,10 @@ struct OpenrowDBApp: App {
                 .keyboardShortcut("n", modifiers: [.command])
             }
             CommandGroup(replacing: .help) {
+                Button("Welcome to OpenrowDB…") {
+                    openConnectionAfterOnboarding = false
+                    showingOnboarding = true
+                }
                 Button("Keyboard Shortcuts…") {
                     showingShortcuts = true
                 }

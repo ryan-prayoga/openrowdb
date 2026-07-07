@@ -2,6 +2,7 @@
 import AppKit
 import OpenrowDBCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One query tab: SQL editor on top, results (per statement) on the bottom,
 /// with a status line and a collapsible history inspector trailing. Keyboard:
@@ -29,6 +30,11 @@ struct QueryEditorView: View {
 
     @State private var editorHeight: CGFloat = 240
     @State private var dragStartHeight: CGFloat?
+    @State private var showRunMenu = false
+    @State private var showDatabaseMenu = false
+    @State private var showMoreMenu = false
+    @State private var databasesLoading = false
+    @State private var databasesError: String?
 
     private static let minEditorHeight: CGFloat = 120
     private static let minResultsHeight: CGFloat = 160
@@ -211,6 +217,31 @@ struct QueryEditorView: View {
             Divider()
             statusBar(runner: runner)
         }
+        .background(editorShortcutCatchers(runner: runner))
+    }
+
+    /// Hidden buttons so ⌘F / ⌘⇧F fire via the responder chain even while the
+    /// hosted NSTextView has focus (same pattern as WorkspaceView's ⌘T/⌘W).
+    private func editorShortcutCatchers(runner: QueryRunner) -> some View {
+        let blank = isBlank(runner.sql)
+        return ZStack {
+            Button("") {
+                editorAccess.presentFindInterface()
+                editorFocused = true
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+
+            Button("") {
+                runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(blank)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+        }
+        .accessibilityHidden(true)
     }
 
     private var dialect: SQLDialect {
@@ -221,24 +252,40 @@ struct QueryEditorView: View {
         let running = isRunning(runner.state)
         let blank = isBlank(runner.sql)
         return HStack(spacing: 8) {
-            Menu {
-                Button("Run Current Statement") { runCurrent(runner) }
-                Button("Run Selection") { runSelection(runner) }
-                    .disabled(editorAccess.selectionLength() == 0)
-                Divider()
-                Button("Run All Statements") { runner.run() }
-            } label: {
-                Label {
-                    Text(running ? "Running…" : "Run")
-                } icon: {
-                    Image(systemName: running ? "hourglass" : "play.fill")
-                        .contentTransition(.symbolEffect(.replace))
+            // Split control: primary press runs (smartRun); the chevron opens a
+            // custom glass dropdown. We build this by hand instead of `Menu …
+            // primaryAction:` because SwiftUI's `Menu` always renders a native
+            // gray NSMenu, which clashes with the dark glass toolbar. A popover
+            // lets the dropdown adopt the same Liquid Glass surface as the rest
+            // of the chrome.
+            GlassEffectContainer(spacing: 2) {
+                HStack(spacing: 2) {
+                    Button {
+                        smartRun(runner)
+                    } label: {
+                        Label {
+                            Text(running ? "Running…" : "Run")
+                        } icon: {
+                            Image(systemName: running ? "hourglass" : "play.fill")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                    .buttonStyle(.glassProminent)
+
+                    Button {
+                        showRunMenu.toggle()
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .frame(width: 14, height: 16)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .accessibilityLabel("Run options")
+                    .popover(isPresented: $showRunMenu, arrowEdge: .bottom) {
+                        runMenu(runner: runner)
+                    }
                 }
-            } primaryAction: {
-                smartRun(runner)
             }
-            .menuStyle(.button)
-            .buttonStyle(.glassProminent)
             .fixedSize()
             .disabled(running || blank)
             .help("Run selection or current statement (⌘↩) · Run all (⇧⌘↩)")
@@ -256,68 +303,238 @@ struct QueryEditorView: View {
                 .transition(.opacity)
             }
 
-            iconButton("text.alignleft", help: "Format SQL (⌘⇧F)", accessibility: "Format") {
-                runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
-            }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
-            .disabled(blank)
-
-            iconButton("list.bullet.rectangle", help: "Explain plan for the first statement", accessibility: "Explain") {
-                runExplain(runner: runner)
-            }
-            .disabled(running || blank)
-
             databaseMenu(runner: runner)
-
-            if manager.isReadOnly(connectionID) {
-                Label("Read-only", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
 
             Spacer()
 
-            ExportButton(outcomes: runner.outcomes)
+            moreMenu(runner: runner, running: running, blank: blank)
 
-            Toggle(isOn: $showSnippets) {
-                Image(systemName: "bookmark").frame(width: 16, height: 16)
-            }
-            .toggleStyle(.button)
-            .help("Saved query snippets")
-            .accessibilityLabel("Snippets")
-            .onChange(of: showSnippets) { _, on in
-                if on { showHistory = false }
-            }
-
-            Toggle(isOn: $showHistory) {
+            // History stays in the core set; restyled from `.toggleStyle(.button)`
+            // to a `.glass` button (active = accent tint) so it matches the Run
+            // and Database controls instead of standing out as a plain toggle.
+            Button {
+                showHistory.toggle()
+            } label: {
                 Image(systemName: "clock.arrow.circlepath").frame(width: 16, height: 16)
             }
-            .toggleStyle(.button)
+            .buttonStyle(.glass)
+            .foregroundStyle(showHistory ? Color.accentColor : .primary)
             .help("Show query history")
             .accessibilityLabel("History")
-            .onChange(of: showHistory) { _, on in
-                if on { showSnippets = false }
-            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .animation(.easeInOut(duration: 0.18), value: running)
     }
 
-    /// Uniform 16×16 glass icon button, matching the table action-bar sizing so
-    /// `.glass` padding stays consistent across every icon-only control.
-    private func iconButton(
-        _ systemName: String,
-        help: String,
-        accessibility: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName).frame(width: 16, height: 16)
+    /// Overflow menu for secondary editor tools (format, explain, export,
+    /// snippets). Kept off the primary toolbar so Run · Database · History stay
+    /// visible; glass popover matches the Run and Database pickers.
+    private func moreMenu(runner: QueryRunner, running: Bool, blank: Bool) -> some View {
+        let hasExport = runner.outcomes.compactMap(\.result).contains { !$0.columns.isEmpty }
+        return Button {
+            showMoreMenu.toggle()
+        } label: {
+            Image(systemName: "ellipsis.circle").frame(width: 16, height: 16)
         }
         .buttonStyle(.glass)
-        .help(help)
-        .accessibilityLabel(accessibility)
+        .help("More editor actions")
+        .accessibilityLabel("More")
+        .popover(isPresented: $showMoreMenu, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 1) {
+                RunMenuRow(
+                    title: "Format SQL",
+                    icon: "text.alignleft",
+                    shortcut: "⌘⇧F",
+                    disabled: blank
+                ) {
+                    showMoreMenu = false
+                    runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
+                }
+                RunMenuRow(
+                    title: "Explain Plan",
+                    icon: "list.bullet.rectangle",
+                    disabled: running || blank
+                ) {
+                    showMoreMenu = false
+                    runExplain(runner: runner)
+                }
+                Divider().padding(.vertical, 3)
+                RunMenuRow(
+                    title: showSnippets ? "Hide Snippets" : "Show Snippets",
+                    icon: "bookmark",
+                    disabled: false
+                ) {
+                    showMoreMenu = false
+                    showSnippets.toggle()
+                    if showSnippets { showHistory = false }
+                }
+                Divider().padding(.vertical, 3)
+                RunMenuRow(
+                    title: "Export as CSV…",
+                    icon: "square.and.arrow.up",
+                    disabled: !hasExport
+                ) {
+                    showMoreMenu = false
+                    exportFirstResult(runner: runner, format: .csv)
+                }
+                RunMenuRow(
+                    title: "Export as JSON…",
+                    icon: "curlybraces",
+                    disabled: !hasExport
+                ) {
+                    showMoreMenu = false
+                    exportFirstResult(runner: runner, format: .json)
+                }
+                RunMenuRow(
+                    title: "Copy as CSV",
+                    icon: "doc.on.clipboard",
+                    disabled: !hasExport
+                ) {
+                    showMoreMenu = false
+                    copyFirstResult(runner: runner, format: .csv)
+                }
+                RunMenuRow(
+                    title: "Copy as JSON",
+                    icon: "doc.on.clipboard",
+                    disabled: !hasExport
+                ) {
+                    showMoreMenu = false
+                    copyFirstResult(runner: runner, format: .json)
+                }
+            }
+            .padding(6)
+            .frame(width: 248)
+        }
+    }
+
+    private enum ExportFormat { case csv, json }
+
+    private func firstExportableResult(in runner: QueryRunner) -> QueryResult? {
+        runner.outcomes.compactMap(\.result).first { !$0.columns.isEmpty }
+    }
+
+    private func exportFirstResult(runner: QueryRunner, format: ExportFormat) {
+        guard let result = firstExportableResult(in: runner) else { return }
+        switch format {
+        case .csv:
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.commaSeparatedText]
+            panel.nameFieldStringValue = "results.csv"
+            panel.canCreateDirectories = true
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try Data(ResultExporter.exportCSV(result).utf8).write(to: url, options: .atomic)
+            } catch { /* best-effort */ }
+        case .json:
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.json]
+            panel.nameFieldStringValue = "results.json"
+            panel.canCreateDirectories = true
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                let data = try ResultExporter.exportJSON(result)
+                try data.write(to: url, options: .atomic)
+            } catch { /* best-effort */ }
+        }
+    }
+
+    private func copyFirstResult(runner: QueryRunner, format: ExportFormat) {
+        guard let result = firstExportableResult(in: runner) else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        switch format {
+        case .csv:
+            pasteboard.setString(ResultExporter.exportCSV(result), forType: .string)
+        case .json:
+            guard let data = try? ResultExporter.exportJSON(result) else { return }
+            pasteboard.setString(String(decoding: data, as: UTF8.self), forType: .string)
+        }
+    }
+
+    /// Glass dropdown for the Run split button. Mirrors the three actions a
+    /// native menu would offer, but rendered on the same Liquid Glass surface
+    /// as the toolbar so the control reads as one designed unit.
+    private func runMenu(runner: QueryRunner) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            RunMenuRow(
+                title: "Run Current Statement",
+                icon: "play.fill",
+                shortcut: "⌘↩"
+            ) {
+                showRunMenu = false
+                runCurrent(runner)
+            }
+            RunMenuRow(
+                title: "Run Selection",
+                icon: "text.cursor",
+                disabled: editorAccess.selectionLength() == 0
+            ) {
+                showRunMenu = false
+                runSelection(runner)
+            }
+            Divider().padding(.vertical, 3)
+            RunMenuRow(
+                title: "Run All Statements",
+                icon: "forward.fill",
+                shortcut: "⇧⌘↩"
+            ) {
+                showRunMenu = false
+                runner.run()
+            }
+        }
+        .padding(6)
+        .frame(width: 248)
+    }
+
+    /// One row of `runMenu`. `.plain` button with a tint-filled hover highlight,
+    /// matching how AppKit menu items light up on pointer hover.
+    private struct RunMenuRow: View {
+        let title: String
+        var icon: String? = nil
+        var shortcut: String? = nil
+        var disabled: Bool = false
+        let action: () -> Void
+
+        @State private var hovering = false
+
+        private var active: Bool { hovering && !disabled }
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    // Reserve the leading slot even when there's no icon so
+                    // labels line up (e.g. the database picker only marks the
+                    // current row with a checkmark).
+                    Group {
+                        if let icon { Image(systemName: icon) }
+                    }
+                    .frame(width: 16)
+                    Text(title).lineLimit(1)
+                    Spacer(minLength: 16)
+                    if let shortcut {
+                        Text(shortcut)
+                            .foregroundStyle(active ? .white.opacity(0.8) : Color.secondary)
+                    }
+                }
+                .font(.callout)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .background {
+                    if active {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor)
+                    }
+                }
+                .contentShape(.rect(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .opacity(disabled ? 0.4 : 1)
+            .onHover { hovering = $0 }
+        }
     }
 
     /// Database this query tab targets. Defaults to the connection's database;
@@ -325,29 +542,101 @@ struct QueryEditorView: View {
     /// autocomplete and runs match what they're browsing in the sidebar tree.
     private func databaseMenu(runner: QueryRunner) -> some View {
         let current = currentDatabase(runner)
-        return Menu {
-            ForEach(databases, id: \.self) { db in
-                Button {
-                    runner.useDatabase(db)
-                } label: {
-                    if db == current {
-                        Label(db, systemImage: "checkmark")
-                    } else {
-                        Text(db)
-                    }
-                }
-            }
+        return Button {
+            showDatabaseMenu.toggle()
+            // Reload on open. The onAppear fetch can race ahead of the
+            // connection finishing its (re)connect — and after a relaunch the
+            // connection may be fully down — so we (re)connect if needed and
+            // refetch every time the menu opens.
+            if showDatabaseMenu { Task { await loadDatabases() } }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "cylinder.split.1x2").frame(width: 16, height: 16)
                 Text(current).lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
             }
         }
-        .menuStyle(.button)
         .buttonStyle(.glass)
         .fixedSize()
         .help("Database for this query tab")
         .accessibilityLabel("Database: \(current)")
+        .popover(isPresented: $showDatabaseMenu, arrowEdge: .bottom) {
+            databasePopover(runner: runner, current: current)
+        }
+    }
+
+    /// Glass dropdown for the database picker — same Liquid Glass popover as the
+    /// Run menu rather than a native NSMenu, with a checkmark on the active db.
+    private func databasePopover(runner: QueryRunner, current: String) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 1) {
+                if !databases.isEmpty {
+                    ForEach(databases, id: \.self) { db in
+                        RunMenuRow(
+                            title: db,
+                            icon: db == current ? "checkmark" : nil
+                        ) {
+                            showDatabaseMenu = false
+                            runner.useDatabase(db)
+                        }
+                    }
+                } else if databasesLoading {
+                    statusRow {
+                        ProgressView().controlSize(.small)
+                        Text("Loading databases…").foregroundStyle(.secondary)
+                    }
+                } else if let databasesError {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(databasesError, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                            .lineLimit(3)
+                        Button("Retry") { Task { await loadDatabases() } }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                    }
+                    .font(.callout)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                } else {
+                    statusRow {
+                        Text("No databases").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(6)
+        }
+        .frame(width: 240)
+        .frame(maxHeight: 360)
+    }
+
+    private func statusRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 8) { content() }
+            .font(.callout)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+    }
+
+    /// (Re)connect if needed, then load the database list for the picker.
+    /// Surfaces failures instead of silently leaving the menu spinning — the
+    /// connection is often simply down (e.g. after a dev relaunch).
+    @MainActor
+    private func loadDatabases() async {
+        if databasesLoading { return }
+        databasesLoading = true
+        databasesError = nil
+        defer { databasesLoading = false }
+
+        if manager.status[connectionID] != ConnectionManager.Status.connected {
+            await manager.connect(connectionID)
+        }
+        do {
+            databases = try await manager.databases(on: connectionID)
+            if databases.isEmpty { databasesError = nil }
+        } catch {
+            databasesError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+        }
     }
 
     private var connectionDatabase: String? {

@@ -48,31 +48,9 @@ struct QueryResultsView: View {
                 editorPosition: outcome.editorErrorPosition
             )
         } else if let result = outcome.result {
-            resultPane(sql: outcome.sql, result: result, durationMs: outcome.durationMs)
+            QueryResultPane(result: result, durationMs: outcome.durationMs)
         } else {
             placeholder
-        }
-    }
-
-    private func resultPane(sql: String, result: QueryResult, durationMs: Int) -> some View {
-        // Local sort state per pane is intentionally a no-op binding — server-side
-        // sorting for ad-hoc query results is out of scope for v1.
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(metaLine(result: result, durationMs: durationMs))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            Divider()
-            ResultsGrid(
-                result: result,
-                sortOrder: .constant([]),
-                selection: .constant([]),
-                sortable: false
-            )
         }
     }
 
@@ -172,13 +150,6 @@ struct QueryResultsView: View {
         return false
     }
 
-    private func metaLine(result: QueryResult, durationMs: Int) -> String {
-        if let rowsAffected = result.rowsAffected, result.columns.isEmpty {
-            return "\(rowsAffected) row\(rowsAffected == 1 ? "" : "s") affected · \(durationMs) ms"
-        }
-        return "\(result.rows.count) row\(result.rows.count == 1 ? "" : "s") · \(result.columns.count) col\(result.columns.count == 1 ? "" : "s") · \(durationMs) ms"
-    }
-
     private func label(for outcome: QueryRunner.StatementOutcome, index: Int) -> String {
         let prefix = "#\(index + 1)"
         if let error = outcome.error {
@@ -192,5 +163,41 @@ struct QueryResultsView: View {
             return "\(prefix) (\(result.rows.count))"
         }
         return prefix
+    }
+}
+
+// MARK: - Result pane
+
+private struct QueryResultPane: View {
+    let result: QueryResult
+    let durationMs: Int
+
+    @State private var sortOrder: [ColumnComparator] = []
+    @State private var selection: Set<Int> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(metaLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            Divider()
+            ResultsGrid(
+                result: result,
+                sortOrder: $sortOrder,
+                selection: $selection
+            )
+        }
+    }
+
+    private var metaLine: String {
+        if let rowsAffected = result.rowsAffected, result.columns.isEmpty {
+            return "\(rowsAffected) row\(rowsAffected == 1 ? "" : "s") affected · \(durationMs) ms"
+        }
+        return "\(result.rows.count) row\(result.rows.count == 1 ? "" : "s") · \(result.columns.count) col\(result.columns.count == 1 ? "" : "s") · \(durationMs) ms"
     }
 }

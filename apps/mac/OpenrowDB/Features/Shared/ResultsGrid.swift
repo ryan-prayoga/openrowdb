@@ -40,8 +40,7 @@ struct ResultsGrid: View {
     /// against the sidebar in every state. 0 when the grid never abuts the
     /// sidebar (e.g. the Browse split).
     var leadingInset: CGFloat = 0
-    /// When false, column headers are not sortable (ad-hoc query results have no
-    /// server-side re-fetch on sort — disabling avoids a misleading affordance).
+    /// When false, column headers are not sortable.
     var sortable: Bool = true
 
     // Row action callbacks — nil = action not available in this context
@@ -373,15 +372,27 @@ struct ResultRow: Identifiable {
     let cells: [String?]
 }
 
-/// Sort descriptor carried by clickable table headers. Sorting is performed
-/// server-side (ORDER BY), so the client-side `compare` is a no-op — the column
-/// header still shows the sort indicator from `order`.
+/// Sort descriptor for clickable table headers. Table browse re-fetches with
+/// `ORDER BY` on change; query results sort the in-memory row set client-side.
 struct ColumnComparator: SortComparator {
     let columnIndex: Int
     let columnName: String
     var order: SortOrder
 
     func compare(_ lhs: ResultRow, _ rhs: ResultRow) -> ComparisonResult {
-        .orderedSame
+        guard columnIndex < lhs.cells.count, columnIndex < rhs.cells.count else {
+            return .orderedSame
+        }
+        let base = ResultRowCellOrdering.compare(lhs.cells[columnIndex], rhs.cells[columnIndex])
+        switch order {
+        case .forward:
+            return base
+        case .reverse:
+            switch base {
+            case .orderedAscending: return .orderedDescending
+            case .orderedDescending: return .orderedAscending
+            case .orderedSame: return .orderedSame
+            }
+        }
     }
 }

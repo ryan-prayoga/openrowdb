@@ -44,11 +44,7 @@ struct ExplainPlanView: View {
                 variant: .error
             )
         } else if let result, !result.columns.isEmpty {
-            ResultsGrid(
-                result: result,
-                sortOrder: .constant([]),
-                selection: .constant([])
-            )
+            ExplainPlanGrid(result: result)
         } else if loading {
             ProgressView("Running EXPLAIN…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -75,5 +71,19 @@ struct ExplainPlanView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+private struct ExplainPlanGrid: View {
+    let result: QueryResult
+    @State private var sortOrder: [ColumnComparator] = []
+    @State private var selection: Set<Int> = []
+
+    var body: some View {
+        ResultsGrid(
+            result: result,
+            sortOrder: $sortOrder,
+            selection: $selection
+        )
     }
 }

@@ -2,6 +2,12 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Query result column sort** — click column headers to sort ad-hoc SELECT results and EXPLAIN output client-side (numeric-aware, NULLs last).
+
 ## [0.2.1] — 2026-07-07
 
 ### Fixed

@@ -4,6 +4,8 @@ All notable changes to OpenrowDB are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-07-07
+
 ### Added
 
 - **Multi-window support** — ⌘⇧N opens another main window; right-click a connection → **Open in New Window** for a dedicated workspace window (one connection, shared tab state).
@@ -193,6 +195,7 @@ xattr -d com.apple.quarantine /Applications/OpenrowDB.app
 - App Sandbox disabled — required for arbitrary host:port DB connections
 - Windows/Linux shells are scaffold-only
 
+[0.2.2]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.2
 [0.2.1]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.0
 [0.1.9]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.9

@@ -135,6 +135,13 @@ Shipped in one day as sprints A→H; see [CHANGELOG](CHANGELOG.md#020--2026-07-0
 - [x] CHANGELOG + `release-notes/v0.2.1.md`
 - [x] Tag `v0.2.1` + GitHub Release (2026-07-07)
 
+## Phase 5.3 — Ship v0.2.2 ✅
+
+- [x] Multi-window — ⌘⇧N + dedicated connection windows
+- [x] Query result column sort (client-side)
+- [x] CHANGELOG + `release-notes/v0.2.2.md`
+- [x] Tag `v0.2.2` + GitHub Release (2026-07-07)
+
 ## Post v1 — backlog
 - [ ] SQLite driver
 - [ ] MongoDB driver

@@ -2,6 +2,16 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] — 2026-07-07
+
+### Fixed
+
+- **Postgres rows affected** — mutation queries (`UPDATE`, `DELETE`, `INSERT`) now surface affected-row counts in the results pane and query history via PostgresNIO `PostgresQueryMetadata`.
+
+### Changed
+
+- **ROADMAP** — Tier A (v0.2.0 sprints A–H) and Tier B pre-v1 backlog documented.
+
 ## [0.2.0] — 2026-07-07
 
 ### Added
@@ -173,10 +183,10 @@ xattr -d com.apple.quarantine /Applications/OpenrowDB.app
 
 ### Known limitations
 
-- Postgres `rowsAffected` not surfaced (PostgresNIO API gap)
 - App Sandbox disabled — required for arbitrary host:port DB connections
 - Windows/Linux shells are scaffold-only
 
+[0.2.1]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.0
 [0.1.9]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.9
 [0.1.8]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.8

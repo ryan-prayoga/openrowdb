@@ -129,6 +129,12 @@ Shipped in one day as sprints A→H; see [CHANGELOG](CHANGELOG.md#020--2026-07-0
 - [x] Postgres rows affected — `PostgresQueryMetadata.rows` via EventLoopFuture query API
 - [ ] Announce v0.2.0 on X + Show HN (maintainer)
 
+## Phase 5.2 — Ship v0.2.1 (patch) ✅
+
+- [x] Postgres rows affected fix + `PostgresCommandTag` unit tests
+- [x] CHANGELOG + `release-notes/v0.2.1.md`
+- [x] Tag `v0.2.1` + GitHub Release (2026-07-07)
+
 ## Post v1 — backlog
 - [ ] SQLite driver
 - [ ] MongoDB driver

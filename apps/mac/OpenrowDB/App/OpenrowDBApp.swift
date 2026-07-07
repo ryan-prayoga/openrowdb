@@ -27,6 +27,7 @@ struct OpenrowDBApp: App {
     @State private var tabs = WorkspaceTabsState()
     @State private var sessionStore = OpenrowDBApp.makeSessionStore()
     @State private var refreshCoordinator = RefreshCoordinator()
+    @State private var preferences = AppPreferences.shared
     @State private var showingNewConnection = false
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var openConnectionAfterOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
@@ -41,6 +42,7 @@ struct OpenrowDBApp: App {
                 .environment(snippets)
                 .environment(tabs)
                 .environment(refreshCoordinator)
+                .environment(preferences)
                 .task {
                     try? manager.reload()
                     tabs.sessionStore = sessionStore
@@ -73,7 +75,18 @@ struct OpenrowDBApp: App {
         // sidebar toggle animates smoothly. (Apple DTS: forums/thread/775713)
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 700)
+        Settings {
+            PreferencesView()
+                .environment(preferences)
+        }
+
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Connection…") {
                     showingNewConnection = true

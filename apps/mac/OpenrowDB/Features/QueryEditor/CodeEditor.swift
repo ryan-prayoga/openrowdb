@@ -81,6 +81,8 @@ struct CodeEditor: NSViewRepresentable {
     /// actually selected right now — the snapshot lags a SwiftUI render and is
     /// stale the instant the Run menu steals first responder from the editor.
     var access: EditorAccess? = nil
+    /// Monospaced point size; driven by AppPreferences.editorFontSize.
+    var fontSize: CGFloat = 13
 
     struct CursorPosition: Equatable {
         var line: Int = 1
@@ -138,7 +140,7 @@ struct CodeEditor: NSViewRepresentable {
 
         // Editing & input behaviour.
         textView.delegate = context.coordinator
-        textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -209,6 +211,10 @@ struct CodeEditor: NSViewRepresentable {
         context.coordinator.onSubmit = onSubmit
         context.coordinator.onCursorChange = onCursorChange
         context.coordinator.highlighter?.dialect = dialect
+        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        if textView.font != font {
+            textView.font = font
+        }
         // Only sync from binding when the text genuinely diverged. Without this
         // guard, every keystroke triggers updateNSView → setString → wipes the
         // current selection and breaks the cursor.

@@ -12,6 +12,7 @@ struct TableDataView: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(WorkspaceTabsState.self) private var tabs
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
+    @Environment(AppPreferences.self) private var preferences
     let connectionID: UUID
     let table: TableRef
     /// Width of the translucent NavigationSplitView sidebar overlapping the
@@ -59,7 +60,7 @@ struct TableDataView: View {
     @State private var countGeneration = 0
 
     @State private var pendingDeleteRow: Int?
-    @State private var mutationError: String?
+    @State private var mutationFailure: DatabaseErrorPresenter.Failure?
     @State private var isResetting = false
     @State private var resetGeneration: UInt64 = 0
 
@@ -84,8 +85,8 @@ struct TableDataView: View {
         manager.connections.first(where: { $0.id == connectionID })?.driver.dialect ?? .postgres
     }
 
-    private var mutationErrorPresented: Binding<Bool> {
-        Binding(get: { mutationError != nil }, set: { if !$0 { mutationError = nil } })
+    private var mutationFailurePresented: Binding<Bool> {
+        Binding(get: { mutationFailure != nil }, set: { if !$0 { mutationFailure = nil } })
     }
 
     private var currentSort: SortSpec? {
@@ -125,10 +126,13 @@ struct TableDataView: View {
             } message: {
                 Text("This permanently deletes the row. This can't be undone.")
             }
-            .alert("Operation failed", isPresented: mutationErrorPresented) {
-                Button("OK", role: .cancel) {}
+            .alert(
+                mutationFailure?.title ?? "Row change failed",
+                isPresented: mutationFailurePresented
+            ) {
+                Button("OK", role: .cancel) { mutationFailure = nil }
             } message: {
-                Text(mutationError ?? "")
+                Text(mutationFailure?.message ?? "")
             }
     }
 
@@ -543,7 +547,7 @@ struct TableDataView: View {
                 try await manager.updateRow(table, on: connectionID, assignments: assignments, predicates: preds)
                 await reloadAfterMutation(clearSelection: false)
             } catch {
-                mutationError = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+                mutationFailure = DatabaseErrorPresenter.failure(title: "Couldn't update row", error: error)
             }
         }
     }
@@ -595,7 +599,7 @@ struct TableDataView: View {
                 try await manager.deleteRow(table, on: connectionID, predicates: predicates)
                 await reloadAfterMutation(clearSelection: true)
             } catch {
-                mutationError = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+                mutationFailure = DatabaseErrorPresenter.failure(title: "Couldn't delete row", error: error)
             }
         }
     }
@@ -645,6 +649,7 @@ struct TableDataView: View {
         searchGeneration += 1
         filterGeneration += 1
         page = 0
+        pageSize = preferences.defaultTablePageSize
         sortOrder = []
         result = nil
         totalRows = nil
@@ -948,7 +953,7 @@ struct InlineRowEditorPanel: View {
             do {
                 try await onSave()
             } catch {
-                errorMessage = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+                errorMessage = DatabaseErrorPresenter.message(for: error)
             }
             saving = false
         }

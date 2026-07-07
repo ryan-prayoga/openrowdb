@@ -20,9 +20,12 @@ struct ShortcutsHelpView: View {
 
     private let groups: [ShortcutGroup] = [
         ShortcutGroup(title: "General", entries: [
+            ShortcutEntry(keys: ["⌘", ","], description: "Settings"),
             ShortcutEntry(keys: ["⌘", "N"], description: "New connection"),
             ShortcutEntry(keys: ["⌘", "W"], description: "Close current tab"),
             ShortcutEntry(keys: ["⌘", "T"], description: "New query tab"),
+            ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar and active view"),
+            ShortcutEntry(keys: ["⌘", "/"], description: "Keyboard shortcuts help"),
         ]),
         ShortcutGroup(title: "Query Editor", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Run query"),
@@ -31,6 +34,9 @@ struct ShortcutsHelpView: View {
             ShortcutEntry(keys: ["⌘", "F"], description: "Find in editor"),
             ShortcutEntry(keys: ["⌘", "⇧", "F"], description: "Format SQL (More menu)"),
             ShortcutEntry(keys: ["Tab"], description: "Trigger autocomplete"),
+        ]),
+        ShortcutGroup(title: "Query Editor — More Menu (⋯)", entries: [
+            ShortcutEntry(keys: ["⋯"], description: "Format SQL, Explain, Snippets, Export"),
         ]),
         ShortcutGroup(title: "Browse / Table Viewer", entries: [
             ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar, row counts, and current table page"),
@@ -41,6 +47,7 @@ struct ShortcutsHelpView: View {
         ]),
         ShortcutGroup(title: "Sidebar", entries: [
             ShortcutEntry(keys: ["↩", "↩"], description: "Double-click connection to connect"),
+            ShortcutEntry(keys: ["⌃", "click"], description: "Context menu — drop, rename, export SQL"),
         ]),
     ]
 
@@ -52,7 +59,7 @@ struct ShortcutsHelpView: View {
             Divider()
             footer
         }
-        .frame(width: 460, height: 500)
+        .frame(width: 480, height: 560)
     }
 
     private var header: some View {

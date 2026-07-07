@@ -69,5 +69,6 @@ struct ContentView: View {
             )
         )
         .environment(RefreshCoordinator())
+        .environment(AppPreferences.shared)
         .frame(width: 1100, height: 700)
 }

@@ -42,7 +42,7 @@ struct ConnectionsSidebar: View {
     @State private var pendingDropDB: DropDBTarget?
     @State private var creatingDatabaseConn: Connection?
     @State private var newDatabaseName = ""
-    @State private var ddlError: String?
+    @State private var ddlFailure: DatabaseErrorPresenter.Failure?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,10 +114,14 @@ struct ConnectionsSidebar: View {
         } message: {
             Text("Enter a name for the new database.")
         }
-        .alert("Operation failed",
-               isPresented: Binding(get: { ddlError != nil }, set: { if !$0 { ddlError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(ddlError ?? "") }
+        .alert(
+            ddlFailure?.title ?? "Operation failed",
+            isPresented: Binding(get: { ddlFailure != nil }, set: { if !$0 { ddlFailure = nil } })
+        ) {
+            Button("OK", role: .cancel) { ddlFailure = nil }
+        } message: {
+            Text(ddlFailure?.message ?? "")
+        }
     }
 
     private var searchField: some View {
@@ -621,7 +625,7 @@ struct ConnectionsSidebar: View {
                 connExpanded.insert(conn.id)
                 await loadDatabases(for: conn)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't create database", error: error)
             }
         }
     }
@@ -638,7 +642,7 @@ struct ConnectionsSidebar: View {
                 dbColumns.removeValue(forKey: key)
                 await loadDatabases(for: conn)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't drop database", error: error)
             }
         }
     }
@@ -650,7 +654,7 @@ struct ConnectionsSidebar: View {
                 try await manager.dropTable(table, on: key.connectionID)
                 await loadTables(key: key, conn: conn)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't drop table", error: error)
             }
         }
     }
@@ -663,7 +667,7 @@ struct ConnectionsSidebar: View {
                 _ = try await manager.run(sql, on: key.connectionID, database: key.database)
                 await loadCounts(key: key)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't truncate table", error: error)
             }
         }
     }
@@ -684,7 +688,7 @@ struct ConnectionsSidebar: View {
                 try await manager.renameTable(table, on: key.connectionID, to: newName)
                 await loadTables(key: key, conn: conn)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't rename table", error: error)
             }
         }
     }
@@ -709,7 +713,7 @@ struct ConnectionsSidebar: View {
                 )
                 copy(sql.trimmingCharacters(in: .whitespacesAndNewlines))
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't copy CREATE statement", error: error)
             }
         }
     }
@@ -729,7 +733,7 @@ struct ConnectionsSidebar: View {
                 )
                 try SQLFileIO.write(sql, to: url)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't export database", error: error)
             }
         }
     }
@@ -744,7 +748,7 @@ struct ConnectionsSidebar: View {
                 )
                 try SQLFileIO.write(sql, to: url)
             } catch {
-                ddlError = (error as? DatabaseError)?.userMessage ?? error.localizedDescription
+                ddlFailure = DatabaseErrorPresenter.failure(title: "Couldn't export table", error: error)
             }
         }
     }

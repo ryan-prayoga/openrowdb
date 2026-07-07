@@ -6,6 +6,7 @@ import SwiftUI
 /// Clicking an entry loads its SQL into the editor via the `onSelect` callback.
 struct QueryHistoryView: View {
     @Environment(QueryHistoryStore.self) private var history
+    @Environment(AppPreferences.self) private var preferences
     let connectionID: UUID
     let onSelect: (String) -> Void
 
@@ -83,6 +84,9 @@ struct QueryHistoryView: View {
             }
         }
         .task(id: connectionID) { await reload() }
+        .onChange(of: preferences.historyDisplayLimit) { _, _ in
+            Task { await reload() }
+        }
     }
 
     private func entryRow(_ entry: HistoryEntry) -> some View {
@@ -118,7 +122,10 @@ struct QueryHistoryView: View {
 
     private func reload() async {
         do {
-            entries = try await history.entries(forConnection: connectionID, limit: 200)
+            entries = try await history.entries(
+                forConnection: connectionID,
+                limit: preferences.historyDisplayLimit
+            )
             loadError = nil
         } catch {
             loadError = String(describing: error)

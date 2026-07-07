@@ -12,6 +12,7 @@ struct QueryEditorView: View {
     @Environment(QueryHistoryStore.self) private var history
     @Environment(WorkspaceTabsState.self) private var tabs
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
+    @Environment(AppPreferences.self) private var preferences
     let connectionID: UUID
     let tabID: UUID
 
@@ -35,6 +36,8 @@ struct QueryEditorView: View {
     @State private var showMoreMenu = false
     @State private var databasesLoading = false
     @State private var databasesError: String?
+    @State private var pendingHistorySQL: String?
+    @State private var exportFailure: DatabaseErrorPresenter.Failure?
 
     private static let minEditorHeight: CGFloat = 120
     private static let minResultsHeight: CGFloat = 160
@@ -88,8 +91,7 @@ struct QueryEditorView: View {
             if showHistory {
                 Divider()
                 QueryHistoryView(connectionID: connectionID) { sql in
-                    runner.sql = sql
-                    editorFocused = true
+                    loadHistorySQL(sql, runner: runner)
                 }
                 .frame(width: 280)
                 .frame(maxHeight: .infinity)
@@ -120,6 +122,41 @@ struct QueryEditorView: View {
                 error: explainError,
                 loading: explainLoading
             )
+        }
+        .confirmationDialog(
+            "Replace editor contents?",
+            isPresented: Binding(
+                get: { pendingHistorySQL != nil },
+                set: { if !$0 { pendingHistorySQL = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Replace") {
+                if let sql = pendingHistorySQL {
+                    runner.sql = sql
+                    editorFocused = true
+                }
+                pendingHistorySQL = nil
+            }
+            Button("Cancel", role: .cancel) { pendingHistorySQL = nil }
+        } message: {
+            Text("Loading this history entry will replace the SQL currently in the editor.")
+        }
+        .alert(item: $exportFailure) { failure in
+            Alert(
+                title: Text(failure.title),
+                message: Text(failure.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    private func loadHistorySQL(_ sql: String, runner: QueryRunner) {
+        if preferences.confirmHistoryLoad && !isBlank(runner.sql) {
+            pendingHistorySQL = sql
+        } else {
+            runner.sql = sql
+            editorFocused = true
         }
     }
 
@@ -197,7 +234,8 @@ struct QueryEditorView: View {
                 errorPosition: editorErrorPosition(in: runner.outcomes),
                 jumpRequest: jumpRequest,
                 onCursorChange: { cursor = $0 },
-                access: editorAccess
+                access: editorAccess,
+                fontSize: CGFloat(preferences.editorFontSize)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // The hosted NSScrollView's line-number ruler composites its drawing
@@ -425,7 +463,9 @@ struct QueryEditorView: View {
             guard panel.runModal() == .OK, let url = panel.url else { return }
             do {
                 try Data(ResultExporter.exportCSV(result).utf8).write(to: url, options: .atomic)
-            } catch { /* best-effort */ }
+            } catch {
+                exportFailure = DatabaseErrorPresenter.failure(title: "Couldn't export CSV", error: error)
+            }
         case .json:
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.json]
@@ -435,7 +475,9 @@ struct QueryEditorView: View {
             do {
                 let data = try ResultExporter.exportJSON(result)
                 try data.write(to: url, options: .atomic)
-            } catch { /* best-effort */ }
+            } catch {
+                exportFailure = DatabaseErrorPresenter.failure(title: "Couldn't export JSON", error: error)
+            }
         }
     }
 
@@ -447,8 +489,12 @@ struct QueryEditorView: View {
         case .csv:
             pasteboard.setString(ResultExporter.exportCSV(result), forType: .string)
         case .json:
-            guard let data = try? ResultExporter.exportJSON(result) else { return }
-            pasteboard.setString(String(decoding: data, as: UTF8.self), forType: .string)
+            do {
+                let data = try ResultExporter.exportJSON(result)
+                pasteboard.setString(String(decoding: data, as: UTF8.self), forType: .string)
+            } catch {
+                exportFailure = DatabaseErrorPresenter.failure(title: "Couldn't copy JSON", error: error)
+            }
         }
     }
 

@@ -28,7 +28,7 @@ apps/mac/
 
 ## Running
 
-Until the Xcode project is generated:
+Build and test the SwiftPM package:
 
 ```bash
 cd apps/mac
@@ -36,7 +36,21 @@ swift build           # builds the Core library
 swift test            # runs Core tests
 ```
 
-Once `OpenrowDB.xcodeproj` exists, just open it and Cmd+R.
+Launch the app through the bundled script so SwiftPM output is wrapped in a
+proper `.app` bundle and ad-hoc signed:
+
+```bash
+cd apps/mac
+./scripts/run.sh
+```
+
+During UI iteration, use watch mode to rebuild and relaunch after Swift file
+changes:
+
+```bash
+cd apps/mac
+./scripts/watch.sh
+```
 
 ## Generating the Xcode project
 

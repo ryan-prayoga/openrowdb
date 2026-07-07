@@ -3,7 +3,7 @@
 The landing page for [openrowdb.ryanprayoga.dev](https://openrowdb.ryanprayoga.dev).
 
 **Stack:** Vite + React + TypeScript · Tailwind v4 (CSS-first) · [ReactBits](https://reactbits.dev)-style
-animated components (`motion`, `gsap`, `ogl`). Design language: macOS "Liquid Glass" — animated
+animated components (`motion`, `ogl`). Design language: macOS "Liquid Glass" — animated
 WebGL aurora, frosted glass panels, indigo→blue + electric-cyan.
 
 ## Develop
@@ -17,6 +17,7 @@ npm run dev        # http://localhost:5173
 ## Build & preview
 
 ```bash
+npm run lint       # ESLint + React compiler rules
 npm run build      # → static web/dist/
 npm run preview    # serve the production build locally
 ```

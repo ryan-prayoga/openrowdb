@@ -4,12 +4,12 @@ import Foundation
 /// One persisted workspace tab. Structure tabs are intentionally omitted —
 /// they carry UI closures and are ephemeral.
 public enum PersistedWorkspaceTab: Sendable, Equatable {
-    case query(id: UUID, sql: String)
+    case query(id: UUID, sql: String, title: String? = nil)
     case table(ref: TableRef, filterColumn: String?, filterValue: String?)
 
     public var tabKey: String {
         switch self {
-        case .query(let id, _): return "query:\(id.uuidString)"
+        case .query(let id, _, _): return "query:\(id.uuidString)"
         case .table(let ref, _, _): return "table:\(ref.id)"
         }
     }
@@ -17,7 +17,7 @@ public enum PersistedWorkspaceTab: Sendable, Equatable {
 
 extension PersistedWorkspaceTab: Codable {
     private enum CodingKeys: String, CodingKey {
-        case kind, id, sql, ref, filterColumn, filterValue
+        case kind, id, sql, title, ref, filterColumn, filterValue
     }
 
     public init(from decoder: Decoder) throws {
@@ -27,7 +27,8 @@ extension PersistedWorkspaceTab: Codable {
         case "query":
             self = .query(
                 id: try container.decode(UUID.self, forKey: .id),
-                sql: try container.decode(String.self, forKey: .sql)
+                sql: try container.decode(String.self, forKey: .sql),
+                title: try container.decodeIfPresent(String.self, forKey: .title)
             )
         case "table":
             self = .table(
@@ -47,10 +48,11 @@ extension PersistedWorkspaceTab: Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .query(let id, let sql):
+        case .query(let id, let sql, let title):
             try container.encode("query", forKey: .kind)
             try container.encode(id, forKey: .id)
             try container.encode(sql, forKey: .sql)
+            try container.encodeIfPresent(title, forKey: .title)
         case .table(let ref, let filterColumn, let filterValue):
             try container.encode("table", forKey: .kind)
             try container.encode(ref, forKey: .ref)

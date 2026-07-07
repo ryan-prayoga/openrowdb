@@ -12,6 +12,7 @@ struct QueryHistoryView: View {
 
     @State private var entries: [HistoryEntry] = []
     @State private var loadError: String?
+    @State private var search = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,6 +51,23 @@ struct QueryHistoryView: View {
             .padding(.vertical, 6)
             Divider()
 
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.small)
+                TextField("Search history", text: $search)
+                    .textFieldStyle(.plain)
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            Divider()
+
             if let loadError {
                 PlaceholderView(
                     title: "History unavailable",
@@ -57,15 +75,17 @@ struct QueryHistoryView: View {
                     systemImage: "exclamationmark.triangle",
                     variant: .error
                 )
-            } else if entries.isEmpty {
+            } else if filteredEntries.isEmpty {
                 PlaceholderView(
-                    title: "No history yet",
-                    subtitle: "Run a query to populate this list.",
-                    systemImage: "tray"
+                    title: search.isEmpty ? "No history yet" : "No matches",
+                    subtitle: search.isEmpty
+                        ? "Run a query to populate this list."
+                        : "Try a different search term.",
+                    systemImage: search.isEmpty ? "tray" : "magnifyingglass"
                 )
             } else {
                 List {
-                    ForEach(entries) { entry in
+                    ForEach(filteredEntries) { entry in
                         entryRow(entry)
                             .contentShape(Rectangle())
                             .onTapGesture { onSelect(entry.sql) }
@@ -87,6 +107,12 @@ struct QueryHistoryView: View {
         .onChange(of: preferences.historyDisplayLimit) { _, _ in
             Task { await reload() }
         }
+    }
+
+    private var filteredEntries: [HistoryEntry] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return entries }
+        return entries.filter { $0.sql.localizedCaseInsensitiveContains(query) }
     }
 
     private func entryRow(_ entry: HistoryEntry) -> some View {
@@ -118,6 +144,8 @@ struct QueryHistoryView: View {
             }
         }
         .padding(.vertical, 2)
+        .accessibilityLabel(entry.sql.singleLinePreview(limit: 120))
+        .accessibilityHint("Loads this query into the editor")
     }
 
     private func reload() async {

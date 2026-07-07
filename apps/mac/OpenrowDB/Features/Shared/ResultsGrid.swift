@@ -109,9 +109,19 @@ struct ResultsGrid: View {
         }
     }
 
+    private var gridAccessibilityLabel: String {
+        let rowCount = result.rows.count
+        let columnCount = result.columns.count
+        let rowWord = rowCount == 1 ? "row" : "rows"
+        let colWord = columnCount == 1 ? "column" : "columns"
+        return "Query results, \(rowCount) \(rowWord), \(columnCount) \(colWord)"
+    }
+
     @ViewBuilder
     private func gridChrome<Content: View>(_ table: Content) -> some View {
         table
+            .accessibilityLabel(gridAccessibilityLabel)
+            .accessibilityHint(sortable ? "Click column headers to sort" : "Read-only result set")
             .contextMenu(forSelectionType: Int.self) { items in
                 if let id = items.first {
                     if canMutate {
@@ -298,8 +308,10 @@ struct CellText: View {
     var body: some View {
         if let value {
             Text(value).monospaced().textSelection(.enabled)
+                .accessibilityLabel(value)
         } else {
             Text("NULL").foregroundStyle(.secondary).italic()
+                .accessibilityLabel("NULL")
         }
     }
 }

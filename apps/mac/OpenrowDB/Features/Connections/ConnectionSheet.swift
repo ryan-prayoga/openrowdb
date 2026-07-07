@@ -29,6 +29,8 @@ struct ConnectionSheet: View {
     @State private var sshPassword = ""
     @State private var revealSSHPassword = false
 
+    @State private var connectionURL = ""
+    @State private var urlParseError: String?
     @State private var errorMessage: String?
     @State private var testState: TestState = .idle
 
@@ -64,6 +66,23 @@ struct ConnectionSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
+                if !isEditing {
+                    Section("Import from URL") {
+                        HStack(spacing: 8) {
+                            TextField("postgres://user:pass@host:5432/db", text: $connectionURL)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { importFromURL() }
+                            Button("Import") { importFromURL() }
+                                .disabled(connectionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        if let urlParseError {
+                            Label(urlParseError, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.red)
+                                .font(.callout)
+                        }
+                    }
+                }
+
                 Section("Connection") {
                     TextField("Name", text: $name)
                     Picker("Driver", selection: $driver) {
@@ -117,7 +136,12 @@ struct ConnectionSheet: View {
             Divider()
             footer
         }
-        .frame(width: 460, height: sshEnabled ? 640 : 560)
+        .frame(width: 460, height: sheetHeight)
+    }
+
+    private var sheetHeight: CGFloat {
+        let base: CGFloat = isEditing ? 560 : 640
+        return sshEnabled ? base + 80 : base
     }
 
     @ViewBuilder
@@ -208,6 +232,34 @@ struct ConnectionSheet: View {
     }
 
     // MARK: - Actions
+
+    private func importFromURL() {
+        urlParseError = nil
+        do {
+            let parsed = try ConnectionURLParser.parse(connectionURL)
+            driver = parsed.driver
+            host = parsed.host
+            port = parsed.port
+            user = parsed.user
+            password = parsed.password
+            database = parsed.database
+            sslMode = parsed.sslMode
+            if name.trimmingCharacters(in: .whitespaces).isEmpty {
+                name = parsed.database.isEmpty ? parsed.host : parsed.database
+            }
+            connectionURL = ""
+            testState = .idle
+        } catch let error as ConnectionURLParser.ParseError {
+            switch error {
+            case .empty: urlParseError = "Paste a connection URL first."
+            case .invalidScheme(let scheme): urlParseError = "Unsupported scheme “\(scheme)”. Use postgres:// or mysql://."
+            case .missingHost: urlParseError = "URL is missing a host."
+            case .invalidURL: urlParseError = "Could not parse that URL."
+            }
+        } catch {
+            urlParseError = error.localizedDescription
+        }
+    }
 
     /// Build a Connection from the current form. Reuses the existing id +
     /// Keychain key when editing so the stored secret stays addressable.

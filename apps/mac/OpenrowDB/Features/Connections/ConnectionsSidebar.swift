@@ -127,7 +127,8 @@ struct ConnectionsSidebar: View {
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).imageScale(.small)
-            TextField("Filter tables & columns", text: $search).textFieldStyle(.plain)
+            TextField("Filter connections, tables & columns", text: $search).textFieldStyle(.plain)
+                .accessibilityLabel("Filter sidebar")
             if !search.isEmpty {
                 Button { search = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -198,9 +199,29 @@ struct ConnectionsSidebar: View {
         }
     }
 
+    private var filteredConnections: [Connection] {
+        guard !search.isEmpty else { return manager.connections }
+        return manager.connections.filter { connectionVisible($0) }
+    }
+
+    private func connectionVisible(_ conn: Connection) -> Bool {
+        if connectionMatchesSearch(conn) { return true }
+        for database in connDatabases[conn.id] ?? [] {
+            let key = DBKey(connectionID: conn.id, database: database)
+            if !visibleTables(key: key).isEmpty { return true }
+        }
+        return false
+    }
+
+    private func connectionMatchesSearch(_ conn: Connection) -> Bool {
+        conn.name.localizedCaseInsensitiveContains(search) ||
+        conn.host.localizedCaseInsensitiveContains(search) ||
+        conn.database.localizedCaseInsensitiveContains(search)
+    }
+
     private var rows: [Row] {
         var out: [Row] = []
-        for conn in manager.connections {
+        for conn in filteredConnections {
             out.append(.connection(conn))
             guard connExpanded.contains(conn.id) else { continue }
             let dbs = connDatabases[conn.id] ?? []
@@ -307,6 +328,7 @@ struct ConnectionsSidebar: View {
             onDisconnect: { Task { await manager.disconnect(conn.id) } },
             onRefresh: { refreshCoordinator.refresh(connectionID: conn.id) },
             onEdit: { editingConnection = conn },
+            onDuplicate: { Task { try? manager.duplicate(conn) } },
             onDelete: { pendingDelete = conn },
             newTableDatabases: connDatabases[conn.id] ?? [],
             canCreateTable: !manager.isReadOnly(conn.id),
@@ -394,6 +416,8 @@ struct ConnectionsSidebar: View {
         }
         .buttonStyle(SidebarRowStyle())
         .help("\(table.schema).\(table.name)\(table.kind == .view ? " (view)" : "")")
+        .accessibilityLabel("\(table.name), \(table.kind == .view ? "view" : "table")")
+        .accessibilityHint("Opens in a new tab")
         .contextMenu {
             tableMenu(table, key: key, conn: conn, allSchm: allSchm, defSchema: defSchema, isReadOnly: isReadOnly)
         }
@@ -453,6 +477,7 @@ struct ConnectionsSidebar: View {
         }
         .contentShape(.rect)
         .help("\(table.name).\(column.name) · \(column.type)")
+        .accessibilityLabel("\(column.name), \(column.type)")
         .contextMenu {
             Button("Copy Name") { copy(column.name) }
             Button("Copy Qualified Name") { copy("\(table.name).\(column.name)") }
@@ -782,6 +807,7 @@ private struct ConnHeaderRow: View {
     let onDisconnect: () -> Void
     let onRefresh: () -> Void
     let onEdit: () -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
     /// Databases known for this connection (drives the "New Table" submenu).
     let newTableDatabases: [String]
@@ -834,6 +860,7 @@ private struct ConnHeaderRow: View {
                 Button("Connect") { onConnect() }.disabled(status == .connecting)
             }
             Button("Edit…") { onEdit() }
+            Button("Duplicate") { onDuplicate() }
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }
@@ -857,6 +884,7 @@ private struct ConnHeaderRow: View {
         .accessibilityAction(named: "Disconnect") { onDisconnect() }
         .accessibilityAction(named: "Refresh") { onRefresh() }
         .accessibilityAction(named: "Edit") { onEdit() }
+        .accessibilityAction(named: "Duplicate") { onDuplicate() }
     }
 }
 

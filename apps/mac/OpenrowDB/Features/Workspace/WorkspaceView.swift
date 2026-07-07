@@ -10,7 +10,7 @@ struct WorkspaceView: View {
     @Environment(WorkspaceTabsState.self) private var tabs
     let connectionID: UUID
 
-    @State private var pendingCloseTab: WorkspaceTab?
+    @State private var pendingCloseBatch: [WorkspaceTab] = []
     @State private var renamingQueryTab: UUID?
     @State private var renameTabText = ""
 
@@ -29,7 +29,9 @@ struct WorkspaceView: View {
                     TabStrip(
                         connectionID: connectionID,
                         onAttemptClose: attemptClose,
-                        onRenameQueryTab: beginRenameQueryTab
+                        onRenameQueryTab: beginRenameQueryTab,
+                        onCloseOthers: closeOtherTabs,
+                        onCloseAll: closeAllTabs
                     )
                     Divider()
                     tabContent
@@ -56,22 +58,22 @@ struct WorkspaceView: View {
                 }
             }
             .confirmationDialog(
-                "Close this query tab?",
+                closeDialogTitle,
                 isPresented: Binding(
-                    get: { pendingCloseTab != nil },
-                    set: { if !$0 { pendingCloseTab = nil } }
+                    get: { !pendingCloseBatch.isEmpty },
+                    set: { if !$0 { pendingCloseBatch = [] } }
                 ),
                 titleVisibility: .visible
             ) {
                 Button("Close", role: .destructive) {
-                    if let tab = pendingCloseTab {
-                        closeTab(tab)
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        tabs.closeTabs(pendingCloseBatch, for: connectionID)
                     }
-                    pendingCloseTab = nil
+                    pendingCloseBatch = []
                 }
-                Button("Cancel", role: .cancel) { pendingCloseTab = nil }
+                Button("Cancel", role: .cancel) { pendingCloseBatch = [] }
             } message: {
-                Text("This tab has SQL that hasn't been run yet. Closing discards your edits.")
+                Text(closeDialogMessage)
             }
             .alert(
                 "Rename Query Tab",
@@ -224,6 +226,12 @@ struct WorkspaceView: View {
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+            } else if !isConnecting {
+                Text("Double-click the connection in the sidebar to connect.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -234,17 +242,52 @@ struct WorkspaceView: View {
     private var isConnected: Bool { status == .connected }
     private var isConnecting: Bool { status == .connecting }
 
-    private func attemptClose(_ tab: WorkspaceTab) {
-        if case .query(let id) = tab, tabs.isQueryDirty(id) {
-            pendingCloseTab = tab
+    private var closeDialogTitle: String {
+        if pendingCloseBatch.count == 1 {
+            "Close tab with unsaved changes?"
         } else {
-            closeTab(tab)
+            "Close \(pendingCloseBatch.count) tabs with unsaved changes?"
         }
     }
 
-    private func closeTab(_ tab: WorkspaceTab) {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            tabs.closeTab(tab, for: connectionID)
+    private var closeDialogMessage: String {
+        if pendingCloseBatch.count == 1 {
+            "This query tab has SQL that hasn't been run. Closing will discard your edits."
+        } else {
+            "These query tabs have SQL that hasn't been run. Closing will discard your edits."
+        }
+    }
+
+    private func attemptClose(_ tab: WorkspaceTab) {
+        attemptCloseBatch([tab])
+    }
+
+    private func closeOtherTabs(keeping selected: WorkspaceTab) {
+        attemptCloseBatch(tabs.tabsOtherThan(selected, for: connectionID))
+    }
+
+    private func closeAllTabs() {
+        attemptCloseBatch(tabs.tabs(for: connectionID))
+    }
+
+    private func attemptCloseBatch(_ batch: [WorkspaceTab]) {
+        guard !batch.isEmpty else { return }
+        var dirty: [WorkspaceTab] = []
+        var clean: [WorkspaceTab] = []
+        for tab in batch {
+            if case .query(let id) = tab, tabs.isQueryDirty(id) {
+                dirty.append(tab)
+            } else {
+                clean.append(tab)
+            }
+        }
+        if !clean.isEmpty {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                tabs.closeTabs(clean, for: connectionID)
+            }
+        }
+        if !dirty.isEmpty {
+            pendingCloseBatch = dirty
         }
     }
 
@@ -270,6 +313,8 @@ private struct TabStrip: View {
     let connectionID: UUID
     let onAttemptClose: (WorkspaceTab) -> Void
     let onRenameQueryTab: (UUID) -> Void
+    let onCloseOthers: (WorkspaceTab) -> Void
+    let onCloseAll: () -> Void
 
     private var openTabs: [WorkspaceTab] {
         tabs.tabs(for: connectionID)
@@ -297,7 +342,9 @@ private struct TabStrip: View {
                                     }
                                 },
                                 onClose: { onAttemptClose(tab) },
-                                onRename: renameAction(for: tab)
+                                onRename: renameAction(for: tab),
+                                onCloseOthers: openTabs.count > 1 ? { onCloseOthers(tab) } : nil,
+                                onCloseAll: openTabs.count > 1 ? onCloseAll : nil
                             )
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         }
@@ -380,6 +427,8 @@ private struct TabChip: View {
     let onSelect: () -> Void
     let onClose: (() -> Void)?
     var onRename: (() -> Void)? = nil
+    var onCloseOthers: (() -> Void)? = nil
+    var onCloseAll: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -396,6 +445,12 @@ private struct TabChip: View {
             }
             if let onClose {
                 Button("Close Tab", role: .destructive) { onClose() }
+            }
+            if let onCloseOthers {
+                Button("Close Others") { onCloseOthers() }
+            }
+            if let onCloseAll {
+                Button("Close All", role: .destructive) { onCloseAll() }
             }
         }
         .accessibilityLabel(label)

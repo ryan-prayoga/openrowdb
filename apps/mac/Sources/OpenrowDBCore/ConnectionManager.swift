@@ -69,6 +69,57 @@ public final class ConnectionManager {
         try secrets.set(value, for: key)
     }
 
+    /// Clone a saved connection (new id + Keychain keys). Password and SSH
+    /// secret are copied when present; name gets a " Copy" suffix.
+    public func duplicate(_ connection: Connection) throws {
+        let newID = UUID()
+        let copy = Connection(
+            id: newID,
+            name: uniqueDuplicateName(for: connection.name),
+            driver: connection.driver,
+            host: connection.host,
+            port: connection.port,
+            user: connection.user,
+            passwordKeychainKey: "com.openrowdb.connection.\(newID.uuidString)",
+            database: connection.database,
+            sslMode: connection.sslMode,
+            ssh: duplicatedSSHConfig(from: connection.ssh, connectionID: newID),
+            isReadOnly: connection.isReadOnly
+        )
+        let password = (try? secrets.get(connection.passwordKeychainKey)) ?? ""
+        try add(copy, password: password)
+        if connection.ssh.enabled,
+           let oldKey = connection.ssh.passwordKeychainKey,
+           let newKey = copy.ssh.passwordKeychainKey,
+           let sshPassword = try? secrets.get(oldKey) {
+            try secrets.set(sshPassword, for: newKey)
+        }
+    }
+
+    private func uniqueDuplicateName(for base: String) -> String {
+        let stem = base.hasSuffix(" Copy") ? String(base.dropLast(5)) : base
+        var candidate = "\(stem) Copy"
+        var index = 2
+        let names = Set(connections.map(\.name))
+        while names.contains(candidate) {
+            candidate = "\(stem) Copy \(index)"
+            index += 1
+        }
+        return candidate
+    }
+
+    private func duplicatedSSHConfig(from ssh: SSHTunnelConfig, connectionID: UUID) -> SSHTunnelConfig {
+        guard ssh.enabled else { return .disabled }
+        return SSHTunnelConfig(
+            enabled: true,
+            host: ssh.host,
+            port: ssh.port,
+            user: ssh.user,
+            privateKeyPath: ssh.privateKeyPath,
+            passwordKeychainKey: "com.openrowdb.ssh.\(connectionID.uuidString)"
+        )
+    }
+
     /// Update metadata, and the password when a new one is supplied (nil = keep existing).
     public func update(_ connection: Connection, password: String?) throws {
         if let password {

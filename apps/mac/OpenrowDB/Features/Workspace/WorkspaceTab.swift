@@ -140,10 +140,13 @@ final class WorkspaceTabsState {
         var restored: [WorkspaceTab] = []
         for persisted in data.tabs {
             switch persisted {
-            case .query(let id, let sql):
+            case .query(let id, let sql, let title):
                 restored.append(.query(id))
                 let runner = self.runner(for: id, connectionID: connectionID, manager: manager, history: history)
                 runner.sql = sql
+                if let title, !title.isEmpty {
+                    queryTabTitles[id] = title
+                }
             case .table(let ref, let filterColumn, let filterValue):
                 restored.append(.table(ref))
                 if let filterColumn, let filterValue, !filterColumn.isEmpty, !filterValue.isEmpty {
@@ -177,7 +180,8 @@ final class WorkspaceTabsState {
             switch tab {
             case .query(let id):
                 let sql = runnersByTab[id]?.sql ?? ""
-                persisted.append(.query(id: id, sql: sql))
+                let title = queryTabTitles[id]
+                persisted.append(.query(id: id, sql: sql, title: title))
             case .table(let ref):
                 let filter = tableFilters[ref.id]
                 persisted.append(.table(ref: ref, filterColumn: filter?.column, filterValue: filter?.value))
@@ -278,6 +282,15 @@ final class WorkspaceTabsState {
     func closeSelectedTab(for connectionID: UUID) {
         guard let selected = selection(for: connectionID) else { return }
         closeTab(selected, for: connectionID)
+    }
+
+    /// Tabs other than `keeping`, in strip order.
+    func tabsOtherThan(_ keeping: WorkspaceTab, for connectionID: UUID) -> [WorkspaceTab] {
+        tabs(for: connectionID).filter { $0 != keeping }
+    }
+
+    func closeTabs(_ batch: [WorkspaceTab], for connectionID: UUID) {
+        for tab in batch { closeTab(tab, for: connectionID) }
     }
 
     func reset(for connectionID: UUID) {

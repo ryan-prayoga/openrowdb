@@ -19,9 +19,10 @@ final class WorkspaceSessionStoreTests: XCTestCase {
         let store = try WorkspaceSessionStore(fileURL: file)
         let connectionID = UUID()
         let table = TableRef(database: "app", schema: "public", name: "users")
+        let queryID = UUID()
         let data = WorkspaceSessionData(
             tabs: [
-                .query(id: UUID(), sql: "SELECT 1"),
+                .query(id: queryID, sql: "SELECT 1", title: "Users"),
                 .table(ref: table, filterColumn: "id", filterValue: "42"),
             ],
             selectedTabKey: "table:\(table.id)"

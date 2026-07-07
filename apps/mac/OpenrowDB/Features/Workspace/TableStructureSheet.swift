@@ -27,6 +27,7 @@ struct TableStructureView: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var pendingDropColumns: [String] = []
+    @State private var showDDLPreview = false
 
     init(
         connectionID: UUID,
@@ -97,6 +98,9 @@ struct TableStructureView: View {
         } message: {
             Text("Removing \(pendingDropColumns.joined(separator: ", ")) permanently deletes that column's data. This can't be undone.")
         }
+        .sheet(isPresented: $showDDLPreview) {
+            DDLPreviewSheet(statements: previewStatements)
+        }
     }
 
     // MARK: - Toolbar
@@ -113,6 +117,9 @@ struct TableStructureView: View {
                     .lineLimit(1)
             }
             if saving { ProgressView().controlSize(.small) }
+            Button("Preview SQL") { showDDLPreview = true }
+                .buttonStyle(.glass)
+                .disabled(previewStatements.isEmpty)
             Button("Cancel", role: .cancel) { onCancel() }
                 .buttonStyle(.glass)
                 .keyboardShortcut(.cancelAction)
@@ -354,6 +361,21 @@ struct TableStructureView: View {
         }
     }
 
+    private var previewStatements: [String] {
+        let previewMode: StructureDDLPreview.Mode = mode == .create ? .create : .edit
+        return StructureDDLPreview.statements(
+            mode: previewMode,
+            dialect: dialect,
+            database: database,
+            schema: schema,
+            tableName: trimmedName,
+            originalName: originalName,
+            existingTable: existingTable,
+            columns: columns,
+            originalColumns: originalColumns
+        )
+    }
+
     private var cleanedColumns: [ColumnDefinition] {
         namedColumns.map { col in
             var copy = col
@@ -382,5 +404,48 @@ struct TableStructureView: View {
             return TableRef(database: table.database, schema: table.schema, name: trimmedName, kind: table.kind)
         }
         return table
+    }
+}
+
+// MARK: - DDL preview sheet
+
+private struct DDLPreviewSheet: View {
+    let statements: [String]
+    @Environment(\.dismiss) private var dismiss
+
+    private var sqlText: String {
+        statements.map { $0.hasSuffix(";") ? $0 : $0 + ";" }.joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("DDL Preview")
+                    .font(.headline)
+                Spacer()
+                Text("\(statements.count) statement\(statements.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            Divider()
+            ScrollView {
+                Text(sqlText)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
+            }
+            .padding()
+        }
+        .frame(width: 560, height: 360)
     }
 }

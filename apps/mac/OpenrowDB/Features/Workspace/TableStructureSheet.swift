@@ -29,6 +29,17 @@ struct TableStructureView: View {
     @State private var pendingDropColumns: [String] = []
     @State private var showDDLPreview = false
 
+    @State private var indexes: [IndexRef] = []
+    @State private var foreignKeys: [ForeignKeyRef] = []
+    @State private var newIndexName = ""
+    @State private var newIndexColumn = ""
+    @State private var newIndexUnique = false
+    @State private var newFKName = ""
+    @State private var newFKColumn = ""
+    @State private var newFKRefSchema = ""
+    @State private var newFKRefTable = ""
+    @State private var newFKRefColumn = ""
+
     init(
         connectionID: UUID,
         mode: Mode,
@@ -139,6 +150,10 @@ struct TableStructureView: View {
             VStack(alignment: .leading, spacing: 24) {
                 tableNameSection
                 columnsSection
+                if mode == .edit {
+                    indexesSection
+                    foreignKeysSection
+                }
             }
             .padding(20)
         }
@@ -284,6 +299,120 @@ struct TableStructureView: View {
         .background(.primary.opacity(0.04), in: .rect(cornerRadius: 6))
     }
 
+    // MARK: - Indexes
+
+    private var indexesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Indexes").font(.headline)
+            if indexes.isEmpty {
+                Text("No secondary indexes.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(indexes) { index in
+                    HStack(spacing: 8) {
+                        Image(systemName: index.isUnique ? "key.fill" : "list.bullet")
+                            .foregroundStyle(.secondary)
+                        Text(index.name).font(.callout.monospaced())
+                        Text(index.columns.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if index.isUnique {
+                            Text("UNIQUE").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            Task { await dropIndex(index) }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            HStack(spacing: 8) {
+                TextField("index_name", text: $newIndexName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 140)
+                Picker("Column", selection: $newIndexColumn) {
+                    Text("Column…").tag("")
+                    ForEach(columns, id: \.id) { Text($0.name).tag($0.name) }
+                }
+                .labelsHidden()
+                .frame(width: 140)
+                Toggle("Unique", isOn: $newIndexUnique)
+                    .toggleStyle(.checkbox)
+                Button("Add Index") { Task { await addIndex() } }
+                    .buttonStyle(.glass)
+                    .disabled(newIndexName.trimmingCharacters(in: .whitespaces).isEmpty || newIndexColumn.isEmpty)
+            }
+        }
+    }
+
+    // MARK: - Foreign keys
+
+    private var foreignKeysSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Foreign Keys").font(.headline)
+            if foreignKeys.isEmpty {
+                Text("No foreign keys.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(foreignKeys) { fk in
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.right.arrow.left")
+                            .foregroundStyle(.secondary)
+                        Text("\(fk.column) → \(fk.referencedTable.schema).\(fk.referencedTable.name).\(fk.referencedColumn)")
+                            .font(.callout)
+                        Spacer()
+                        Button(role: .destructive) {
+                            Task { await dropForeignKey(fk) }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    TextField("constraint_name", text: $newFKName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+                    Picker("Column", selection: $newFKColumn) {
+                        Text("Column…").tag("")
+                        ForEach(columns, id: \.id) { Text($0.name).tag($0.name) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+                }
+                HStack(spacing: 8) {
+                    TextField("ref_schema", text: $newFKRefSchema)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    TextField("ref_table", text: $newFKRefTable)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 140)
+                    TextField("ref_column", text: $newFKRefColumn)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    Button("Add FK") { Task { await addForeignKey() } }
+                        .buttonStyle(.glass)
+                        .disabled(!canAddForeignKey)
+                }
+            }
+        }
+    }
+
+    private var canAddForeignKey: Bool {
+        !newFKColumn.isEmpty
+            && !newFKRefTable.trimmingCharacters(in: .whitespaces).isEmpty
+            && !newFKRefColumn.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     // MARK: - Helpers
 
     private var schemaOptions: [String] {
@@ -315,6 +444,82 @@ struct TableStructureView: View {
         }
         columns = defs
         originalColumns = defs
+        indexes = (try? await manager.indexes(of: table, on: connectionID)) ?? []
+        foreignKeys = (try? await manager.foreignKeys(of: table, on: connectionID)) ?? []
+        newFKRefSchema = table.schema
+    }
+
+    private func addIndex() async {
+        guard let table = existingTable else { return }
+        let name = newIndexName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !newIndexColumn.isEmpty else { return }
+        errorMessage = nil
+        do {
+            try await manager.createIndex(
+                on: table,
+                connection: connectionID,
+                name: name,
+                columns: [newIndexColumn],
+                unique: newIndexUnique
+            )
+            newIndexName = ""
+            newIndexColumn = ""
+            newIndexUnique = false
+            indexes = try await manager.indexes(of: table, on: connectionID)
+        } catch {
+            errorMessage = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+        }
+    }
+
+    private func dropIndex(_ index: IndexRef) async {
+        guard let table = existingTable else { return }
+        errorMessage = nil
+        do {
+            try await manager.dropIndex(named: index.name, from: table, on: connectionID)
+            indexes = try await manager.indexes(of: table, on: connectionID)
+        } catch {
+            errorMessage = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+        }
+    }
+
+    private func addForeignKey() async {
+        guard let table = existingTable else { return }
+        let refSchema = newFKRefSchema.trimmingCharacters(in: .whitespaces).isEmpty
+            ? table.schema : newFKRefSchema.trimmingCharacters(in: .whitespaces)
+        let refTable = newFKRefTable.trimmingCharacters(in: .whitespaces)
+        let refColumn = newFKRefColumn.trimmingCharacters(in: .whitespaces)
+        let constraint = newFKName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "fk_\(table.name)_\(newFKColumn)" : newFKName.trimmingCharacters(in: .whitespaces)
+        let referenced = TableRef(database: table.database, schema: refSchema, name: refTable)
+        errorMessage = nil
+        do {
+            try await manager.addForeignKey(
+                on: table,
+                connection: connectionID,
+                constraintName: constraint,
+                column: newFKColumn,
+                referenced: referenced,
+                referencedColumn: refColumn
+            )
+            newFKName = ""
+            newFKColumn = ""
+            newFKRefTable = ""
+            newFKRefColumn = ""
+            foreignKeys = try await manager.foreignKeys(of: table, on: connectionID)
+        } catch {
+            errorMessage = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+        }
+    }
+
+    private func dropForeignKey(_ fk: ForeignKeyRef) async {
+        guard let table = existingTable else { return }
+        errorMessage = nil
+        do {
+            try await manager.dropForeignKey(named: fk.constraintName, from: table, on: connectionID)
+            foreignKeys = try await manager.foreignKeys(of: table, on: connectionID)
+        } catch {
+            errorMessage = (error as? DatabaseError)?.userMessage ?? String(describing: error)
+        }
     }
 
     // MARK: - Save

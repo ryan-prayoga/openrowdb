@@ -291,6 +291,11 @@ public final class ConnectionManager {
         try await perform(id, database: table.database) { try await $0.foreignKeys(of: table) }
     }
 
+    /// Secondary indexes on a table (primary key excluded).
+    public func indexes(of table: TableRef, on id: UUID) async throws -> [IndexRef] {
+        try await perform(id, database: table.database) { try await $0.indexes(of: table) }
+    }
+
     /// Full column definitions (type, nullability, default, PK) for a schema dump.
     public func columnDefinitions(of table: TableRef, on id: UUID) async throws -> [ColumnDefinition] {
         try await perform(id, database: table.database) { try await $0.columnDefinitions(of: table) }
@@ -415,6 +420,53 @@ public final class ConnectionManager {
     public func renameColumn(_ column: String, to newName: String, in table: TableRef, on id: UUID) async throws {
         try assertWritable(id)
         _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.renameColumnSQL(table, column: column, to: newName)) }
+    }
+
+    public func createIndex(
+        on table: TableRef,
+        connection id: UUID,
+        name: String,
+        columns: [String],
+        unique: Bool
+    ) async throws {
+        try assertWritable(id)
+        _ = try await perform(id, database: table.database) {
+            try await $0.query($0.dialect.createIndexSQL(table, name: name, columns: columns, unique: unique))
+        }
+    }
+
+    public func dropIndex(named name: String, from table: TableRef, on id: UUID) async throws {
+        try assertWritable(id)
+        _ = try await perform(id, database: table.database) { try await $0.query($0.dialect.dropIndexSQL(table, name: name)) }
+    }
+
+    public func addForeignKey(
+        on table: TableRef,
+        connection id: UUID,
+        constraintName: String,
+        column: String,
+        referenced: TableRef,
+        referencedColumn: String
+    ) async throws {
+        try assertWritable(id)
+        _ = try await perform(id, database: table.database) {
+            try await $0.query(
+                $0.dialect.addForeignKeySQL(
+                    table,
+                    constraintName: constraintName,
+                    column: column,
+                    referenced: referenced,
+                    referencedColumn: referencedColumn
+                )
+            )
+        }
+    }
+
+    public func dropForeignKey(named constraintName: String, from table: TableRef, on id: UUID) async throws {
+        try assertWritable(id)
+        _ = try await perform(id, database: table.database) {
+            try await $0.query($0.dialect.dropForeignKeySQL(table, constraintName: constraintName))
+        }
     }
 
     // MARK: - Database mutations (DDL)

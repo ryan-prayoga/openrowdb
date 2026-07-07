@@ -146,9 +146,20 @@ final class SQLMutationsTests: XCTestCase {
 
     func testForeignKeysSQLPostgres() {
         let sql = SQLDialect.postgres.foreignKeysSQL(t)
+        XCTAssertTrue(sql.contains("constraint_name"))
         XCTAssertTrue(sql.contains("FOREIGN KEY"))
         XCTAssertTrue(sql.contains("table_schema = 'public'"))
         XCTAssertTrue(sql.contains("table_name = 'Movie'"))
+    }
+
+    func testCreateIndexSQLPostgres() {
+        let sql = SQLDialect.postgres.createIndexSQL(t, name: "idx_title", columns: ["title"], unique: true)
+        XCTAssertEqual(sql, "CREATE UNIQUE INDEX \"idx_title\" ON \"public\".\"Movie\" (\"title\")")
+    }
+
+    func testDropForeignKeySQLMySQL() {
+        let sql = SQLDialect.mysql.dropForeignKeySQL(mt, constraintName: "fk_order_user")
+        XCTAssertEqual(sql, "ALTER TABLE `shop`.`orders` DROP FOREIGN KEY `fk_order_user`")
     }
 
     func testForeignKeysSQLMySQL() {

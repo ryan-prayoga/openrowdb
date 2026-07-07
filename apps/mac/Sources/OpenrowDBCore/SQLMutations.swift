@@ -222,12 +222,12 @@ public extension SQLDialect {
 
     // MARK: - Foreign keys
 
-    /// SQL returning outgoing FKs: local column, referenced schema, table, column.
+    /// SQL returning outgoing FKs: constraint name, local column, referenced schema, table, column.
     func foreignKeysSQL(_ table: TableRef) -> String {
         switch self {
         case .postgres:
             return """
-            SELECT kcu.column_name, ccu.table_schema, ccu.table_name, ccu.column_name
+            SELECT tc.constraint_name, kcu.column_name, ccu.table_schema, ccu.table_name, ccu.column_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
               ON tc.constraint_name = kcu.constraint_name
@@ -242,7 +242,7 @@ public extension SQLDialect {
             """
         case .mysql:
             return """
-            SELECT kcu.column_name, kcu.referenced_table_schema, kcu.referenced_table_name, kcu.referenced_column_name
+            SELECT tc.constraint_name, kcu.column_name, kcu.referenced_table_schema, kcu.referenced_table_name, kcu.referenced_column_name
             FROM information_schema.key_column_usage kcu
             JOIN information_schema.table_constraints tc
               ON kcu.constraint_name = tc.constraint_name
@@ -252,6 +252,83 @@ public extension SQLDialect {
               AND kcu.table_name = \(quoteLiteral(table.name))
             ORDER BY kcu.ordinal_position
             """
+        }
+    }
+
+    /// Secondary indexes (excludes primary key).
+    func indexesSQL(_ table: TableRef) -> String {
+        switch self {
+        case .postgres:
+            return """
+            SELECT ci.relname,
+                   string_agg(a.attname, ',' ORDER BY k.n),
+                   ix.indisunique
+            FROM pg_class tab
+            JOIN pg_namespace ns ON ns.oid = tab.relnamespace
+            JOIN pg_index ix ON tab.oid = ix.indrelid
+            JOIN pg_class ci ON ci.oid = ix.indexrelid
+            JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, n) ON true
+            JOIN pg_attribute a ON a.attrelid = tab.oid AND a.attnum = k.attnum
+            WHERE ns.nspname = \(quoteLiteral(table.schema))
+              AND tab.relname = \(quoteLiteral(table.name))
+              AND NOT ix.indisprimary
+            GROUP BY ci.relname, ix.indisunique
+            ORDER BY ci.relname
+            """
+        case .mysql:
+            return """
+            SELECT index_name,
+                   GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ','),
+                   CASE WHEN non_unique = 0 THEN 'true' ELSE 'false' END
+            FROM information_schema.statistics
+            WHERE table_schema = \(quoteLiteral(table.schema))
+              AND table_name = \(quoteLiteral(table.name))
+              AND index_name != 'PRIMARY'
+            GROUP BY index_name, non_unique
+            ORDER BY index_name
+            """
+        }
+    }
+
+    func createIndexSQL(_ table: TableRef, name: String, columns: [String], unique: Bool) -> String {
+        let cols = columns.map(quote).joined(separator: ", ")
+        let uniqueKeyword = unique ? "UNIQUE " : ""
+        switch self {
+        case .postgres:
+            return "CREATE \(uniqueKeyword)INDEX \(quote(name)) ON \(qualifiedName(table)) (\(cols))"
+        case .mysql:
+            return "CREATE \(uniqueKeyword)INDEX \(quote(name)) ON \(qualifiedName(table)) (\(cols))"
+        }
+    }
+
+    func dropIndexSQL(_ table: TableRef, name: String) -> String {
+        switch self {
+        case .postgres:
+            return "DROP INDEX \(quote(table.schema)).\(quote(name))"
+        case .mysql:
+            return "DROP INDEX \(quote(name)) ON \(qualifiedName(table))"
+        }
+    }
+
+    func addForeignKeySQL(
+        _ table: TableRef,
+        constraintName: String,
+        column: String,
+        referenced: TableRef,
+        referencedColumn: String
+    ) -> String {
+        """
+        ALTER TABLE \(qualifiedName(table)) ADD CONSTRAINT \(quote(constraintName)) \
+        FOREIGN KEY (\(quote(column))) REFERENCES \(qualifiedName(referenced)) (\(quote(referencedColumn)))
+        """
+    }
+
+    func dropForeignKeySQL(_ table: TableRef, constraintName: String) -> String {
+        switch self {
+        case .postgres:
+            return "ALTER TABLE \(qualifiedName(table)) DROP CONSTRAINT \(quote(constraintName))"
+        case .mysql:
+            return "ALTER TABLE \(qualifiedName(table)) DROP FOREIGN KEY \(quote(constraintName))"
         }
     }
 

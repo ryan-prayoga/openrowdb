@@ -266,7 +266,8 @@ struct TableDataView: View {
                     onDuplicate: { id in
                         if canMutate { duplicateRow(id) }
                     },
-                    sqlCopy: canMutate ? RowSQLCopyContext(table: table, dialect: dialect, primaryKeys: primaryKeys) : nil
+                    sqlCopy: canMutate ? RowSQLCopyContext(table: table, dialect: dialect, primaryKeys: primaryKeys) : nil,
+                    columnTypes: columnTypes
                 )
                 if let mode = inlineEditorMode {
                     Divider()
@@ -994,9 +995,12 @@ struct InlineRowEditorPanel: View {
 
             switch field.wrappedValue.entry {
             case .value:
-                TextField("value", text: field.text)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 150)
+                TypedCellEditor(
+                    column: field.wrappedValue.name,
+                    sqlType: field.wrappedValue.type,
+                    text: field.text
+                )
+                .frame(width: ColumnEditKindResolver.kind(for: field.wrappedValue.type) == .json ? 220 : 150)
             case .null:
                 Text("NULL")
                     .italic()

@@ -73,11 +73,12 @@ public extension DatabaseClient {
     func foreignKeys(of table: TableRef) async throws -> [ForeignKeyRef] {
         let result = try await query(dialect.foreignKeysSQL(table))
         return result.rows.compactMap { row in
-            guard row.count >= 4,
-                  let column = row[0],
-                  let refSchema = row[1],
-                  let refTable = row[2],
-                  let refColumn = row[3] else { return nil }
+            guard row.count >= 5,
+                  let constraintName = row[0],
+                  let column = row[1],
+                  let refSchema = row[2],
+                  let refTable = row[3],
+                  let refColumn = row[4] else { return nil }
             let refDatabase = (dialect == .mysql) ? refSchema : table.database
             let referenced = TableRef(
                 database: refDatabase,
@@ -85,7 +86,24 @@ public extension DatabaseClient {
                 name: refTable,
                 kind: .table
             )
-            return ForeignKeyRef(column: column, referencedTable: referenced, referencedColumn: refColumn)
+            return ForeignKeyRef(
+                constraintName: constraintName,
+                column: column,
+                referencedTable: referenced,
+                referencedColumn: refColumn
+            )
+        }
+    }
+
+    func indexes(of table: TableRef) async throws -> [IndexRef] {
+        let result = try await query(dialect.indexesSQL(table))
+        return result.rows.compactMap { row in
+            guard row.count >= 3,
+                  let name = row[0],
+                  let columnsJoined = row[1] else { return nil }
+            let columns = columnsJoined.split(separator: ",").map { String($0) }
+            let isUnique = (row[2] ?? "").lowercased() == "true" || row[2] == "t"
+            return IndexRef(name: name, columns: columns, isUnique: isUnique)
         }
     }
 

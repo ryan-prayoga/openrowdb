@@ -57,6 +57,8 @@ struct ResultsGrid: View {
     var onDuplicate: ((Int) -> Void)? = nil
     /// When set, context menu offers Copy as INSERT / UPDATE.
     var sqlCopy: RowSQLCopyContext? = nil
+    /// Column name → SQL type, for typed inline editors.
+    var columnTypes: [String: String] = [:]
 
     private var columns: [ResultColumn] {
         result.columns.enumerated().map { ResultColumn(id: $0.offset, name: $0.element) }
@@ -144,6 +146,7 @@ struct ResultsGrid: View {
         if let edit = inlineEdit, row.id == edit.rowID {
             InlineCellTextField(
                 column: column.name,
+                sqlType: columnTypes[column.name] ?? "",
                 editState: edit,
                 onCommit: onCommitEdit,
                 onCancel: onCancelEdit
@@ -260,25 +263,22 @@ struct ResultsGrid: View {
 // TextField rendered inside a cell while its row is being inline-edited.
 private struct InlineCellTextField: View {
     let column: String
+    let sqlType: String
     let editState: InlineEditState
     let onCommit: (() -> Void)?
     let onCancel: (() -> Void)?
 
     var body: some View {
-        TextField(
-            "NULL",
+        TypedCellEditor(
+            column: column,
+            sqlType: sqlType,
             text: Binding(
                 get: { editState.values[column].flatMap { $0 } ?? "" },
                 set: { editState.values[column] = .some($0) }
-            )
+            ),
+            onCommit: onCommit,
+            onCancel: onCancel
         )
-        .font(.system(.body, design: .monospaced))
-        .textFieldStyle(.plain)
-        .onSubmit { onCommit?() }
-        .onKeyPress(.escape) {
-            onCancel?()
-            return .handled
-        }
     }
 }
 

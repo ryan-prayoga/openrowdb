@@ -84,15 +84,13 @@ struct ConnectionsSidebar: View {
         } message: { _ in
             Text("This permanently deletes every row but keeps the table. This can't be undone.")
         }
-        .alert(
-            "Rename \u{201C}\(renamingTable?.name ?? "")\u{201D}",
-            isPresented: Binding(get: { renamingTable != nil }, set: { if !$0 { renamingTable = nil } })
-        ) {
-            TextField("New name", text: $renameText)
-            Button("Rename") { commitRename() }
-            Button("Cancel", role: .cancel) { renamingTable = nil }
-        } message: {
-            Text("Enter a new name for the table.")
+        .sheet(item: $renamingTable) { table in
+            RenameTableSheet(
+                table: table,
+                name: $renameText,
+                onRename: { commitRename(); renamingTable = nil },
+                onCancel: { renamingTable = nil }
+            )
         }
         .confirmationDialog(
             "Drop database \u{201C}\(pendingDropDB?.database ?? "")\u{201D}?",

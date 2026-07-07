@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(ConnectionManager.self) private var manager
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
     @Binding var showingNewConnection: Bool
+    @Binding var newConnectionPreset: ConnectionFormPreset?
     @State private var selection: UUID?
     @State private var editingConnection: Connection?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -33,8 +34,8 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 480, ideal: 820)
         }
         .navigationSplitViewStyle(.balanced)
-        .sheet(isPresented: $showingNewConnection) {
-            ConnectionSheet()
+        .sheet(isPresented: $showingNewConnection, onDismiss: { newConnectionPreset = nil }) {
+            ConnectionSheet(preset: newConnectionPreset)
         }
         .sheet(item: $editingConnection) { connection in
             ConnectionSheet(existing: connection)
@@ -58,7 +59,7 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(showingNewConnection: .constant(false))
+    ContentView(showingNewConnection: .constant(false), newConnectionPreset: .constant(nil))
         .environment(
             ConnectionManager(
                 store: try! ConnectionStore(

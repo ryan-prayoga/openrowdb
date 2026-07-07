@@ -32,22 +32,23 @@ struct ConnectionSheet: View {
     @State private var connectionURL = ""
     @State private var urlParseError: String?
     @State private var errorMessage: String?
+    @State private var fieldErrors = ConnectionFormValidator.FieldErrors()
     @State private var testState: TestState = .idle
 
     private enum TestState: Equatable {
         case idle, testing, success, failure(String)
     }
 
-    init(existing: Connection? = nil) {
+    init(existing: Connection? = nil, preset: ConnectionFormPreset? = nil) {
         self.existing = existing
-        _name = State(initialValue: existing?.name ?? "")
-        _driver = State(initialValue: existing?.driver ?? .postgres)
-        _host = State(initialValue: existing?.host ?? "127.0.0.1")
-        _port = State(initialValue: existing?.port ?? Connection.Driver.postgres.defaultPort)
-        _user = State(initialValue: existing?.user ?? "")
-        _database = State(initialValue: existing?.database ?? "")
-        _sslMode = State(initialValue: existing?.sslMode ?? .prefer)
-        _isReadOnly = State(initialValue: existing?.isReadOnly ?? false)
+        _name = State(initialValue: existing?.name ?? preset?.name ?? "")
+        _driver = State(initialValue: existing?.driver ?? preset?.driver ?? .postgres)
+        _host = State(initialValue: existing?.host ?? preset?.host ?? "127.0.0.1")
+        _port = State(initialValue: existing?.port ?? preset?.port ?? Connection.Driver.postgres.defaultPort)
+        _user = State(initialValue: existing?.user ?? preset?.user ?? "")
+        _database = State(initialValue: existing?.database ?? preset?.database ?? "")
+        _sslMode = State(initialValue: existing?.sslMode ?? preset?.sslMode ?? .prefer)
+        _isReadOnly = State(initialValue: existing?.isReadOnly ?? preset?.isReadOnly ?? false)
         _sshEnabled = State(initialValue: existing?.ssh.enabled ?? false)
         _sshHost = State(initialValue: existing?.ssh.host ?? "")
         _sshPort = State(initialValue: existing?.ssh.port ?? 22)
@@ -84,7 +85,9 @@ struct ConnectionSheet: View {
                 }
 
                 Section("Connection") {
-                    TextField("Name", text: $name)
+                    validatedField(error: fieldErrors.name) {
+                        TextField("Name", text: $name)
+                    }
                     Picker("Driver", selection: $driver) {
                         ForEach(Connection.Driver.allCases, id: \.self) { driver in
                             Text(driver.rawValue.capitalized).tag(driver)
@@ -96,13 +99,19 @@ struct ConnectionSheet: View {
                 }
 
                 Section("Server") {
-                    TextField("Host", text: $host)
-                    TextField("Port", value: $port, format: .number.grouping(.never))
+                    validatedField(error: fieldErrors.host) {
+                        TextField("Host", text: $host)
+                    }
+                    validatedField(error: fieldErrors.port) {
+                        TextField("Port", value: $port, format: .number.grouping(.never))
+                    }
                     TextField("Database", text: $database)
                 }
 
                 Section("Authentication") {
-                    TextField("User", text: $user)
+                    validatedField(error: fieldErrors.user) {
+                        TextField("User", text: $user)
+                    }
                     passwordField
                     Picker("SSL", selection: $sslMode) {
                         ForEach(Connection.SSLMode.allCases, id: \.self) { mode in
@@ -116,9 +125,15 @@ struct ConnectionSheet: View {
                 Section("SSH Tunnel") {
                     Toggle("Connect via SSH", isOn: $sshEnabled)
                     if sshEnabled {
-                        TextField("SSH Host", text: $sshHost)
-                        TextField("SSH Port", value: $sshPort, format: .number.grouping(.never))
-                        TextField("SSH User", text: $sshUser)
+                        validatedField(error: fieldErrors.sshHost) {
+                            TextField("SSH Host", text: $sshHost)
+                        }
+                        validatedField(error: fieldErrors.sshPort) {
+                            TextField("SSH Port", value: $sshPort, format: .number.grouping(.never))
+                        }
+                        validatedField(error: fieldErrors.sshUser) {
+                            TextField("SSH User", text: $sshUser)
+                        }
                         TextField("Private Key Path (optional)", text: $sshPrivateKeyPath)
                             .help("Leave empty to use default keys in ~/.ssh")
                         sshPasswordField
@@ -137,6 +152,44 @@ struct ConnectionSheet: View {
             footer
         }
         .frame(width: 460, height: sheetHeight)
+        .onChange(of: name) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: host) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: port) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: user) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: sshEnabled) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: sshHost) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: sshPort) { _, _ in clearFieldErrorsIfNeeded() }
+        .onChange(of: sshUser) { _, _ in clearFieldErrorsIfNeeded() }
+    }
+
+    @ViewBuilder
+    private func validatedField<Content: View>(error: String?, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            content()
+            if let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func clearFieldErrorsIfNeeded() {
+        if fieldErrors.hasAny { fieldErrors = ConnectionFormValidator.FieldErrors() }
+    }
+
+    private func validateFields() -> Bool {
+        fieldErrors = ConnectionFormValidator.validate(
+            name: name,
+            host: host,
+            port: port,
+            user: user,
+            sshEnabled: sshEnabled,
+            sshHost: sshHost,
+            sshPort: sshPort,
+            sshUser: sshUser
+        )
+        return !fieldErrors.hasAny
     }
 
     private var sheetHeight: CGFloat {
@@ -300,6 +353,7 @@ struct ConnectionSheet: View {
     }
 
     private func save() {
+        guard validateFields() else { return }
         let connection = makeConnection()
         do {
             if isEditing {
@@ -316,6 +370,10 @@ struct ConnectionSheet: View {
     }
 
     private func test() {
+        guard validateFields() else {
+            testState = .failure("Fix the highlighted fields first.")
+            return
+        }
         testState = .testing
         let connection = makeConnection()
         let pw = password

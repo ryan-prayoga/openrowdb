@@ -5,6 +5,8 @@ import SwiftUI
 /// UserDefaults `hasSeenOnboarding` so it never reappears unless cleared.
 struct OnboardingView: View {
     let onDismiss: () -> Void
+    var onSamplePostgres: (() -> Void)? = nil
+    var onSampleMySQL: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,7 +99,18 @@ struct OnboardingView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 10) {
+            if onSamplePostgres != nil || onSampleMySQL != nil {
+                Menu("Try sample setup") {
+                    if let onSamplePostgres {
+                        Button("Local Postgres (127.0.0.1)") { onSamplePostgres() }
+                    }
+                    if let onSampleMySQL {
+                        Button("Local MySQL (127.0.0.1)") { onSampleMySQL() }
+                    }
+                }
+                .buttonStyle(.glass)
+            }
             Spacer()
             Button("Get Started") {
                 onDismiss()

@@ -29,6 +29,7 @@ struct OpenrowDBApp: App {
     @State private var refreshCoordinator = RefreshCoordinator()
     @State private var preferences = AppPreferences.shared
     @State private var showingNewConnection = false
+    @State private var newConnectionPreset: ConnectionFormPreset?
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var openConnectionAfterOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var showingShortcuts = false
@@ -36,7 +37,10 @@ struct OpenrowDBApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(showingNewConnection: $showingNewConnection)
+            ContentView(
+                showingNewConnection: $showingNewConnection,
+                newConnectionPreset: $newConnectionPreset
+            )
                 .environment(manager)
                 .environment(history)
                 .environment(snippets)
@@ -61,10 +65,18 @@ struct OpenrowDBApp: App {
                         openConnectionAfterOnboarding = false
                     }
                 }) {
-                    OnboardingView {
-                        UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
-                        showingOnboarding = false
-                    }
+                    OnboardingView(
+                        onDismiss: {
+                            UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
+                            showingOnboarding = false
+                        },
+                        onSamplePostgres: {
+                            finishOnboardingWithSample(.localPostgres)
+                        },
+                        onSampleMySQL: {
+                            finishOnboardingWithSample(.localMySQL)
+                        }
+                    )
                 }
                 .sheet(isPresented: $showingShortcuts) {
                     ShortcutsHelpView()
@@ -104,6 +116,14 @@ struct OpenrowDBApp: App {
                 .keyboardShortcut("/", modifiers: .command)
             }
         }
+    }
+
+    private func finishOnboardingWithSample(_ preset: ConnectionFormPreset) {
+        UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
+        openConnectionAfterOnboarding = false
+        newConnectionPreset = preset
+        showingOnboarding = false
+        showingNewConnection = true
     }
 
     /// Build the app's `ConnectionManager` with Keychain-backed secrets and

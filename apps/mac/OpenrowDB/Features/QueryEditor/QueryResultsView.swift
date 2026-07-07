@@ -70,7 +70,8 @@ struct QueryResultsView: View {
             ResultsGrid(
                 result: result,
                 sortOrder: .constant([]),
-                selection: .constant(nil)
+                selection: .constant(nil),
+                sortable: false
             )
         }
     }

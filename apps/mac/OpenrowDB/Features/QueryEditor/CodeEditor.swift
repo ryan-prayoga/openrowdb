@@ -48,6 +48,14 @@ final class EditorAccess {
     /// hasn't yet applied the latest `cursor` @State change (the menu-open race
     /// that left "Run Selection" greyed right after a mouse drag-select).
     func selectionLength() -> Int { rangeProvider?().length ?? 0 }
+
+    fileprivate var showFindInterface: (() -> Void)?
+
+    /// Opens the editor's built-in find bar (⌘F). Requires the text view to
+    /// exist — no-op before first layout.
+    func presentFindInterface() {
+        showFindInterface?()
+    }
 }
 
 struct CodeEditor: NSViewRepresentable {
@@ -164,6 +172,11 @@ struct CodeEditor: NSViewRepresentable {
         access?.textProvider = { [weak textView] in textView?.string ?? "" }
         access?.rangeProvider = { [weak textView] in
             textView?.selectedRange() ?? NSRange(location: 0, length: 0)
+        }
+        access?.showFindInterface = { [weak textView] in
+            guard let textView else { return }
+            textView.window?.makeFirstResponder(textView)
+            textView.performTextFinderAction(NSTextFinder.Action.showFindInterface)
         }
 
         let highlighter = SQLSyntaxHighlighter(dialect: dialect)

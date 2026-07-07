@@ -38,6 +38,9 @@ struct ResultsGrid: View {
     /// against the sidebar in every state. 0 when the grid never abuts the
     /// sidebar (e.g. the Browse split).
     var leadingInset: CGFloat = 0
+    /// When false, column headers are not sortable (ad-hoc query results have no
+    /// server-side re-fetch on sort — disabling avoids a misleading affordance).
+    var sortable: Bool = true
 
     // Row action callbacks — nil = action not available in this context
     var canMutate: Bool = false
@@ -68,26 +71,47 @@ struct ResultsGrid: View {
                 subtitle: "This result set has no columns to display.",
                 systemImage: "tablecells"
             )
+        } else if sortable {
+            gridTable(sortOrder: $sortOrder)
         } else {
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumnForEach(columns) { column in
-                    TableColumn(
-                        column.name,
-                        sortUsing: ColumnComparator(columnIndex: column.id, columnName: column.name, order: .forward)
-                    ) { row in
-                        if let edit = inlineEdit, row.id == edit.rowID {
-                            InlineCellTextField(
-                                column: column.name,
-                                editState: edit,
-                                onCommit: onCommitEdit,
-                                onCancel: onCancelEdit
-                            )
-                        } else {
-                            CellText(value: row.cells.indices.contains(column.id) ? row.cells[column.id] : nil)
+            gridTable(sortOrder: nil)
+        }
+    }
+
+    /// SwiftUI `Table` requires a homogeneous `TableColumn` sort-comparator type
+    /// inside `TableColumnForEach` — an `if sortable` branch won't compile. Two
+    /// top-level tables instead: one with `sortUsing:`, one without.
+    @ViewBuilder
+    private func gridTable(sortOrder: Binding<[ColumnComparator]>?) -> some View {
+        if let sortOrder {
+            gridChrome(
+                Table(rows, selection: $selection, sortOrder: sortOrder) {
+                    TableColumnForEach(columns) { column in
+                        TableColumn(
+                            column.name,
+                            sortUsing: ColumnComparator(columnIndex: column.id, columnName: column.name, order: .forward)
+                        ) { row in
+                            gridCell(column: column, row: row)
                         }
                     }
                 }
-            }
+            )
+        } else {
+            gridChrome(
+                Table(rows, selection: $selection) {
+                    TableColumnForEach(columns) { column in
+                        TableColumn(column.name) { row in
+                            gridCell(column: column, row: row)
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func gridChrome<Content: View>(_ table: Content) -> some View {
+        table
             .contextMenu(forSelectionType: Int.self) { items in
                 if let id = items.first {
                     if canMutate {
@@ -118,19 +142,23 @@ struct ResultsGrid: View {
                     }
                 }
             } primaryAction: { items in
-                // Double-click
                 if let id = items.first { onDoubleClick?(id) }
             }
-            // See `leadingInset`. Only the standalone Browse grid (which fills
-            // the detail directly) bleeds its columns under the sidebar and
-            // passes a non-zero inset; there we make the table ignore the
-            // leading safe area so it anchors at the window edge, then pad it
-            // back out by the overlap. The query-results grid sits below the
-            // editor — whose scroll view already consumes the leading safe area
-            // — so it auto-insets correctly and passes 0 (padding it would
-            // double-inset). Gate both modifiers so 0 is a true no-op.
             .ignoresSafeArea(.container, edges: leadingInset > 0 ? .leading : [])
             .padding(.leading, leadingInset)
+    }
+
+    @ViewBuilder
+    private func gridCell(column: ResultColumn, row: ResultRow) -> some View {
+        if let edit = inlineEdit, row.id == edit.rowID {
+            InlineCellTextField(
+                column: column.name,
+                editState: edit,
+                onCommit: onCommitEdit,
+                onCancel: onCancelEdit
+            )
+        } else {
+            CellText(value: row.cells.indices.contains(column.id) ? row.cells[column.id] : nil)
         }
     }
 

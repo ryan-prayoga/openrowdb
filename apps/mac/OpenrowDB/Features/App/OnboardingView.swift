@@ -61,7 +61,7 @@ struct OnboardingView: View {
         Feature(
             icon: "terminal",
             title: "SQL editor with autocomplete",
-            subtitle: "⌘Return runs, Tab autocompletes keywords and schema. Multi-statement and export included."
+            subtitle: "⌘Return runs, Tab autocompletes keywords and schema. Format, explain, and export live in the editor toolbar menu."
         ),
         Feature(
             icon: "arrow.up.arrow.down.square",

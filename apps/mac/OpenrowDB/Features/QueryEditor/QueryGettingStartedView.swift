@@ -9,7 +9,7 @@ struct QueryGettingStartedView: View {
 
     private let hints: [Hint] = [
         Hint(keys: ["⌘", "↩"], label: "Run query"),
-        Hint(keys: ["⌘", "⇧", "F"], label: "Format SQL"),
+        Hint(keys: ["⌘", "F"], label: "Find in editor"),
         Hint(keys: ["⇥"], label: "Autocomplete"),
         Hint(keys: ["⌘", "."], label: "Cancel run"),
     ]
@@ -49,16 +49,7 @@ struct QueryGettingStartedView: View {
 
     private func hintChip(_ hint: Hint) -> some View {
         HStack(spacing: 6) {
-            HStack(spacing: 3) {
-                ForEach(Array(hint.keys.enumerated()), id: \.offset) { _, key in
-                    Text(key)
-                        .font(.system(.caption, design: .rounded, weight: .semibold))
-                        .frame(minWidth: 16)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 3)
-                        .background(.quaternary, in: .rect(cornerRadius: 5, style: .continuous))
-                }
-            }
+            ShortcutChip(keys: hint.keys)
             Text(hint.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)

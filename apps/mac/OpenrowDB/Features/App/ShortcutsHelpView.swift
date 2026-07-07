@@ -26,10 +26,11 @@ struct ShortcutsHelpView: View {
         ]),
         ShortcutGroup(title: "Query Editor", entries: [
             ShortcutEntry(keys: ["⌘", "↩"], description: "Run query"),
+            ShortcutEntry(keys: ["⇧", "⌘", "↩"], description: "Run all statements"),
             ShortcutEntry(keys: ["⌘", "."], description: "Cancel in-flight query"),
-            ShortcutEntry(keys: ["⌘", "⇧", "F"], description: "Format SQL"),
-            ShortcutEntry(keys: ["Tab"], description: "Trigger autocomplete"),
             ShortcutEntry(keys: ["⌘", "F"], description: "Find in editor"),
+            ShortcutEntry(keys: ["⌘", "⇧", "F"], description: "Format SQL (More menu)"),
+            ShortcutEntry(keys: ["Tab"], description: "Trigger autocomplete"),
         ]),
         ShortcutGroup(title: "Browse / Table Viewer", entries: [
             ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar, row counts, and current table page"),
@@ -82,15 +83,7 @@ struct ShortcutsHelpView: View {
             Text(entry.description)
                 .font(.callout)
             Spacer()
-            HStack(spacing: 3) {
-                ForEach(entry.keys, id: \.self) { key in
-                    Text(key)
-                        .font(.system(.caption, design: .rounded).weight(.medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.quaternary, in: .rect(cornerRadius: 5))
-                }
-            }
+            ShortcutChip(keys: entry.keys)
         }
         .padding(.vertical, 1)
     }

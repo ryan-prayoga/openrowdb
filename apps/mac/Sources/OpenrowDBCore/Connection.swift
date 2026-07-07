@@ -6,6 +6,21 @@ public struct Connection: Identifiable, Hashable, Sendable, Codable {
     public enum Driver: String, Codable, Sendable, CaseIterable {
         case postgres
         case mysql
+
+        /// SF Symbol used in the connections sidebar.
+        public var systemImage: String {
+            switch self {
+            case .postgres: "cylinder.fill"
+            case .mysql: "cylinder.split.1x2.fill"
+            }
+        }
+
+        public var displayName: String {
+            switch self {
+            case .postgres: "Postgres"
+            case .mysql: "MySQL"
+            }
+        }
     }
 
     public enum SSLMode: String, Codable, Sendable, CaseIterable {

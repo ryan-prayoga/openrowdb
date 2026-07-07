@@ -115,6 +115,12 @@ struct QueryEditorView: View {
         .onChange(of: runner.sql) { _, _ in
             tabs.schedulePersist(for: connectionID)
         }
+        .onChange(of: runner.state) { _, state in
+            guard case .finished = state else { return }
+            suggestTabTitleIfNeeded(runner: runner)
+        }
+        .onAppear { EditorCommandCenter.shared.register(editorAccess) }
+        .onDisappear { EditorCommandCenter.shared.unregister(editorAccess) }
         .sheet(isPresented: $showExplain) {
             ExplainPlanView(
                 sql: explainSQL,
@@ -149,6 +155,13 @@ struct QueryEditorView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+    }
+
+    private func suggestTabTitleIfNeeded(runner: QueryRunner) {
+        guard tabs.queryTabTitle(for: tabID) == nil else { return }
+        let dialect = manager.connections.first { $0.id == connectionID }?.driver.dialect ?? .postgres
+        guard let title = QueryTabTitleSuggester.suggest(from: runner.sql, dialect: dialect) else { return }
+        tabs.setQueryTabTitle(title, for: tabID, connectionID: connectionID)
     }
 
     private func loadHistorySQL(_ sql: String, runner: QueryRunner) {

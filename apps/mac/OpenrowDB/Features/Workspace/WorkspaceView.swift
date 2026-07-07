@@ -40,7 +40,7 @@ struct WorkspaceView: View {
                 }
             }
             .navigationTitle(connection.name)
-            .navigationSubtitle("\(connection.driver.rawValue) · \(connection.user)@\(connection.host):\(connection.port)/\(connection.database)")
+            .navigationSubtitle(workspaceBreadcrumb(for: connection))
             .toolbar {
                 if isConnected, !connection.isReadOnly {
                     ToolbarItem(placement: .primaryAction) {
@@ -241,6 +241,25 @@ struct WorkspaceView: View {
 
     private var isConnected: Bool { status == .connected }
     private var isConnecting: Bool { status == .connecting }
+
+    private func workspaceBreadcrumb(for connection: Connection) -> String {
+        guard isConnected, let tab = tabs.selection(for: connectionID) else {
+            return "\(connection.driver.displayName) · \(connection.user)@\(connection.host):\(connection.port)/\(connection.database)"
+        }
+        switch tab {
+        case .table(let ref):
+            let database = ref.database.isEmpty ? connection.database : ref.database
+            return "\(database) › \(ref.schema) › \(ref.name)"
+        case .query:
+            return "\(connection.database) › Query"
+        case .structure(let id):
+            if let meta = tabs.structureMeta[id] {
+                let name = meta.existingTable?.name ?? "New Table"
+                return "\(meta.database) › Structure › \(name)"
+            }
+            return "\(connection.database) › Structure"
+        }
+    }
 
     private var closeDialogTitle: String {
         if pendingCloseBatch.count == 1 {

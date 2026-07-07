@@ -185,6 +185,20 @@ final class QueryHistoryStoreTests: XCTestCase {
         XCTAssertEqual(fetched[0].error, "relation \"no_such_table\" does not exist")
     }
 
+    func testPinSortsToTop() async throws {
+        let store = try makeStore()
+        let conn = UUID()
+        let older = makeEntry(connection: conn, sql: "SELECT 1", executedAt: Date(timeIntervalSince1970: 1))
+        let newer = makeEntry(connection: conn, sql: "SELECT 2", executedAt: Date(timeIntervalSince1970: 2))
+        try await store.record(older)
+        try await store.record(newer)
+        try await store.setPinned(id: older.id, pinned: true)
+
+        let fetched = try await store.entries(forConnection: conn)
+        XCTAssertEqual(fetched.map(\.sql), ["SELECT 1", "SELECT 2"])
+        XCTAssertTrue(fetched[0].pinned)
+    }
+
     func testMigrationIsIdempotent() async throws {
         let store1 = try makeStore()
         let conn = UUID()

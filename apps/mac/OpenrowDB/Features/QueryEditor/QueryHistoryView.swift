@@ -96,6 +96,12 @@ struct QueryHistoryView: View {
                                 Button(expandedEntryIDs.contains(entry.id) ? "Collapse" : "Expand") {
                                     toggleExpanded(entry.id)
                                 }
+                                Button(entry.pinned ? "Unpin" : "Pin") {
+                                    Task {
+                                        try? await history.setPinned(id: entry.id, pinned: !entry.pinned)
+                                        await reload()
+                                    }
+                                }
                                 Button("Delete", role: .destructive) {
                                     Task {
                                         try? await history.delete(id: entry.id)
@@ -137,6 +143,11 @@ struct QueryHistoryView: View {
                 .truncationMode(.tail)
                 .textSelection(.enabled)
             HStack(spacing: 6) {
+                if entry.pinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundStyle(.orange)
+                        .imageScale(.small)
+                }
                 Text(entry.executedAt, format: .relative(presentation: .numeric))
                     .font(.caption2)
                     .foregroundStyle(.secondary)

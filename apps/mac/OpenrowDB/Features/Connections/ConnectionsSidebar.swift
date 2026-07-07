@@ -820,6 +820,11 @@ private struct ConnHeaderRow: View {
     var body: some View {
         HStack(spacing: 6) {
             StatusDot(status: status).frame(width: 8)
+            Image(systemName: connection.driver.systemImage)
+                .foregroundStyle(.tint)
+                .imageScale(.small)
+                .frame(width: 14)
+                .help(connection.driver.displayName)
             VStack(alignment: .leading, spacing: 1) {
                 Text(connection.name)
                     .foregroundStyle(.primary)

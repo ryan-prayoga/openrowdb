@@ -105,6 +105,16 @@ struct OpenrowDBApp: App {
                 }
                 .keyboardShortcut("n", modifiers: [.command])
             }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { EditorCommandCenter.shared.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                Button("Redo") { EditorCommandCenter.shared.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .pasteboard) {
+                Button("Find…") { EditorCommandCenter.shared.find() }
+                    .keyboardShortcut("f", modifiers: .command)
+            }
             CommandGroup(replacing: .help) {
                 Button("Welcome to OpenrowDB…") {
                     openConnectionAfterOnboarding = false
@@ -114,8 +124,20 @@ struct OpenrowDBApp: App {
                     showingShortcuts = true
                 }
                 .keyboardShortcut("/", modifiers: .command)
+                Divider()
+                Button("OpenrowDB on GitHub…") {
+                    openURL("https://github.com/ryan-prayoga/openrowdb")
+                }
+                Button("Report an Issue…") {
+                    openURL("https://github.com/ryan-prayoga/openrowdb/issues/new")
+                }
             }
         }
+    }
+
+    private func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func finishOnboardingWithSample(_ preset: ConnectionFormPreset) {

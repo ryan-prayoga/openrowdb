@@ -16,6 +16,7 @@ public struct HistoryEntry: Sendable, Equatable, Identifiable {
     public let durationMs: Int
     public let rowsAffected: Int?
     public let error: String?
+    public var pinned: Bool
 
     public init(
         id: UUID = UUID(),
@@ -24,7 +25,8 @@ public struct HistoryEntry: Sendable, Equatable, Identifiable {
         executedAt: Date = Date(),
         durationMs: Int,
         rowsAffected: Int? = nil,
-        error: String? = nil
+        error: String? = nil,
+        pinned: Bool = false
     ) {
         self.id = id
         self.connectionID = connectionID
@@ -33,6 +35,7 @@ public struct HistoryEntry: Sendable, Equatable, Identifiable {
         self.durationMs = durationMs
         self.rowsAffected = rowsAffected
         self.error = error
+        self.pinned = pinned
     }
 }
 
@@ -56,6 +59,7 @@ extension HistoryEntry: FetchableRecord, PersistableRecord {
         static let durationMs = Column("duration_ms")
         static let rowsAffected = Column("rows_affected")
         static let error = Column("error")
+        static let pinned = Column("pinned")
     }
 
     public init(row: Row) throws {
@@ -74,6 +78,7 @@ extension HistoryEntry: FetchableRecord, PersistableRecord {
         self.durationMs = row[Columns.durationMs]
         self.rowsAffected = row[Columns.rowsAffected]
         self.error = row[Columns.error]
+        self.pinned = row[Columns.pinned]
     }
 
     public func encode(to container: inout PersistenceContainer) {
@@ -84,6 +89,7 @@ extension HistoryEntry: FetchableRecord, PersistableRecord {
         container[Columns.durationMs] = durationMs
         container[Columns.rowsAffected] = rowsAffected
         container[Columns.error] = error
+        container[Columns.pinned] = pinned
     }
 }
 
@@ -143,6 +149,11 @@ public final class QueryHistoryStore: @unchecked Sendable {
                 t.column("error", .text)
             }
         }
+        migrator.registerMigration("v2_history_pinned") { db in
+            try db.alter(table: HistoryEntry.databaseTableName) { t in
+                t.add(column: "pinned", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 
@@ -160,7 +171,7 @@ public final class QueryHistoryStore: @unchecked Sendable {
         try await dbPool.read { db in
             var request = HistoryEntry
                 .filter(HistoryEntry.Columns.connectionID == connectionID.uuidString)
-                .order(HistoryEntry.Columns.executedAt.desc)
+                .order(HistoryEntry.Columns.pinned.desc, HistoryEntry.Columns.executedAt.desc)
             if let limit {
                 request = request.limit(limit)
             }
@@ -171,11 +182,24 @@ public final class QueryHistoryStore: @unchecked Sendable {
     /// All entries across every connection, newest first. Useful for a global history view.
     public func allEntries(limit: Int? = nil) async throws -> [HistoryEntry] {
         try await dbPool.read { db in
-            var request = HistoryEntry.order(HistoryEntry.Columns.executedAt.desc)
+            var request = HistoryEntry.order(
+                HistoryEntry.Columns.pinned.desc,
+                HistoryEntry.Columns.executedAt.desc
+            )
             if let limit {
                 request = request.limit(limit)
             }
             return try request.fetchAll(db)
+        }
+    }
+
+    /// Pin or unpin a history entry.
+    public func setPinned(id: UUID, pinned: Bool) async throws {
+        try await dbPool.write { db in
+            try db.execute(
+                sql: "UPDATE \(HistoryEntry.databaseTableName) SET pinned = ? WHERE id = ?",
+                arguments: [pinned, id.uuidString]
+            )
         }
     }
 

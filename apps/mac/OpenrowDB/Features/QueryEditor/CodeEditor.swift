@@ -50,12 +50,17 @@ final class EditorAccess {
     func selectionLength() -> Int { rangeProvider?().length ?? 0 }
 
     fileprivate var showFindInterface: (() -> Void)?
+    fileprivate var undoAction: (() -> Void)?
+    fileprivate var redoAction: (() -> Void)?
 
     /// Opens the editor's built-in find bar (⌘F). Requires the text view to
     /// exist — no-op before first layout.
     func presentFindInterface() {
         showFindInterface?()
     }
+
+    func undo() { undoAction?() }
+    func redo() { redoAction?() }
 }
 
 struct CodeEditor: NSViewRepresentable {
@@ -169,17 +174,7 @@ struct CodeEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.rulerView = ruler
 
-        // Expose the live text view so the parent can pull the real selection at
-        // the moment of a run, bypassing the lagging `onCursorChange` snapshot.
-        access?.textProvider = { [weak textView] in textView?.string ?? "" }
-        access?.rangeProvider = { [weak textView] in
-            textView?.selectedRange() ?? NSRange(location: 0, length: 0)
-        }
-        access?.showFindInterface = { [weak textView] in
-            guard let textView else { return }
-            textView.window?.makeFirstResponder(textView)
-            textView.performTextFinderAction(NSTextFinder.Action.showFindInterface)
-        }
+        wireEditorCommands(access: access, textView: textView)
 
         let highlighter = SQLSyntaxHighlighter(dialect: dialect)
         textView.textStorage?.delegate = highlighter
@@ -206,6 +201,7 @@ struct CodeEditor: NSViewRepresentable {
         // text view gets reset to its own empty string on the next update — the
         // "can't type more than one character in tab 2" bug.
         context.coordinator.text = $text
+        wireEditorCommands(access: access, textView: textView)
         context.coordinator.dialect = dialect
         context.coordinator.schema = schema
         context.coordinator.onSubmit = onSubmit
@@ -600,5 +596,28 @@ final class CompletionTextView: NSTextView {
         } else {
             super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
         }
+    }
+}
+
+@MainActor
+private func wireEditorCommands(access: EditorAccess?, textView: NSTextView?) {
+    access?.textProvider = { [weak textView] in textView?.string ?? "" }
+    access?.rangeProvider = { [weak textView] in
+        textView?.selectedRange() ?? NSRange(location: 0, length: 0)
+    }
+    access?.showFindInterface = { [weak textView] in
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(NSTextFinder.Action.showFindInterface)
+    }
+    access?.undoAction = { [weak textView] in
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+        textView.undoManager?.undo()
+    }
+    access?.redoAction = { [weak textView] in
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+        textView.undoManager?.redo()
     }
 }

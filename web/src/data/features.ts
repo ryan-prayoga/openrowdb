@@ -35,10 +35,10 @@ export const pillars: Pillar[] = [
     blurb: "A native grid that stays smooth on big tables — counts, sort, paginate.",
     accent: "#2f6bff",
     items: [
-      "Schema tree — tables + views",
+      "Schema tree — databases → schemas → tables → columns",
       "Hybrid row counts (exact / estimate)",
-      "Sortable grid, NULL-aware, cell copy",
-      "Row inspector with SQL types",
+      "Multi-select, bulk delete, paste rows (⇧⌘V)",
+      "Column filters, width persistence, typed inline edit",
       "Pagination + page-size + jump",
       "Foreign-key navigation (Follow FK)",
     ],
@@ -51,7 +51,7 @@ export const pillars: Pillar[] = [
     accent: "#38e1d6",
     items: [
       "Multi-statement editor (⌘↩ run / ⌘. cancel)",
-      "Query history + saved snippets",
+      "Global search (⌘K) + history pin/search",
       "Dialect-aware autocomplete (Tab)",
       "EXPLAIN plan viewer",
       "SQL formatter (⌘⇧F)",
@@ -66,8 +66,8 @@ export const pillars: Pillar[] = [
     accent: "#f5b545",
     items: [
       "Inline row insert / edit / delete / duplicate",
-      "Table structure editor (columns, types)",
-      "Database transfer — export & import .sql",
+      "Structure editor — columns, indexes, foreign keys",
+      "DDL preview + database transfer (.sql)",
       "Copy row as INSERT / UPDATE",
       "Read-only connection mode + guards",
       "Tab persistence across restarts",

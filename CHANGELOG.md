@@ -2,6 +2,38 @@
 
 All notable changes to OpenrowDB are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — 2026-07-07
+
+### Added
+
+- **Preferences (⌘,)** — default table page size, editor font size, history display limit, confirm-before-replace on history load.
+- **Onboarding sample connections** — Local Postgres / Local MySQL presets open a pre-filled connection sheet.
+- **Connection form validation** — per-field errors on Save / Test Connection; **URL import** for `postgres://` / `mysql://` strings.
+- **Global search (⌘K)** — command palette across connections, tables (connected), open tabs, and query history.
+- **Query tab auto-title** — suggests a tab name from the SQL `FROM` clause; **history pin** with pinned-first sort; **history search** in the inspector.
+- **Edit menu** — Undo / Redo / Find routed to the active SQL editor; **Help** links to GitHub and Report Issue.
+- **Multi-select rows** — bulk delete and copy-as-TSV in the table viewer; **paste rows (⇧⌘V)** from clipboard TSV/CSV with preview.
+- **Column width persistence** — per-table grid column sizes saved across sessions.
+- **Typed inline editors** — boolean, date, datetime, and JSON controls inferred from SQL column types.
+- **Table filter operators** — Contains, Equals, Not equals, `>`, `<`, Starts with, Ends with (persisted per table tab).
+- **Workspace breadcrumb** — `db › schema › table` navigation subtitle.
+- **Driver badge icons** on connection sidebar rows; **expandable schema folders** (auto-expand while filtering).
+- **Duplicate connection**; sidebar filter now matches connection names.
+- **DDL preview** before structure saves; **index editor** (create/drop secondary indexes); **foreign key editor** (add/drop constraints).
+- **Rename table sheet**; **tab drag-reorder** and **persisted tab rename**; **Close Others / Close All** on the tab strip.
+
+### Changed
+
+- **DesignSystem** — `PlaceholderView`, `GlassIconButton`, `GlassMenuRow`, and spacing tokens shared across surfaces.
+- **Transfer menu** — native `Menu` replaced with a glass popover; import SQL confirms statement count.
+- **Shortcuts help (⌘/)** — documents ⌘K, ⇧⌘V, multi-select, and More-menu actions.
+
+### Fixed
+
+- **Export error feedback** — CSV/JSON export failures show an alert instead of failing silently.
+- **DDL/mutation errors** — specific messages replace generic “Operation failed” alerts.
+- **Query results sort** — sortable headers disabled for ad-hoc query results (no no-op affordance).
+
 ## [0.1.9] — 2026-06-26
 
 ### Added
@@ -145,6 +177,10 @@ xattr -d com.apple.quarantine /Applications/OpenrowDB.app
 - App Sandbox disabled — required for arbitrary host:port DB connections
 - Windows/Linux shells are scaffold-only
 
+[0.2.0]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.2.0
+[0.1.9]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.9
+[0.1.8]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.8
+[0.1.7]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ryan-prayoga/openrowdb/releases/tag/v0.1.4

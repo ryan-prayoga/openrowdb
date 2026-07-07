@@ -32,6 +32,7 @@ jobs:
         working-directory: web
         run: |
           npm ci
+          npm run lint
           npm run build
 
       - name: Install cloudflared

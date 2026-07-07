@@ -13,6 +13,7 @@ struct QueryHistoryView: View {
     @State private var entries: [HistoryEntry] = []
     @State private var loadError: String?
     @State private var search = ""
+    @State private var expandedEntryIDs: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,9 +89,13 @@ struct QueryHistoryView: View {
                     ForEach(filteredEntries) { entry in
                         entryRow(entry)
                             .contentShape(Rectangle())
-                            .onTapGesture { onSelect(entry.sql) }
+                            .onTapGesture(count: 2) { onSelect(entry.sql) }
+                            .onTapGesture(count: 1) { toggleExpanded(entry.id) }
                             .contextMenu {
                                 Button("Load into editor") { onSelect(entry.sql) }
+                                Button(expandedEntryIDs.contains(entry.id) ? "Collapse" : "Expand") {
+                                    toggleExpanded(entry.id)
+                                }
                                 Button("Delete", role: .destructive) {
                                     Task {
                                         try? await history.delete(id: entry.id)
@@ -115,12 +120,22 @@ struct QueryHistoryView: View {
         return entries.filter { $0.sql.localizedCaseInsensitiveContains(query) }
     }
 
+    private func toggleExpanded(_ id: UUID) {
+        if expandedEntryIDs.contains(id) {
+            expandedEntryIDs.remove(id)
+        } else {
+            expandedEntryIDs.insert(id)
+        }
+    }
+
     private func entryRow(_ entry: HistoryEntry) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(entry.sql.singleLinePreview(limit: 80))
+        let expanded = expandedEntryIDs.contains(entry.id)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(expanded ? entry.sql : entry.sql.singleLinePreview(limit: 80))
                 .font(.system(.callout, design: .monospaced))
-                .lineLimit(1)
+                .lineLimit(expanded ? nil : 1)
                 .truncationMode(.tail)
+                .textSelection(.enabled)
             HStack(spacing: 6) {
                 Text(entry.executedAt, format: .relative(presentation: .numeric))
                     .font(.caption2)
@@ -145,7 +160,7 @@ struct QueryHistoryView: View {
         }
         .padding(.vertical, 2)
         .accessibilityLabel(entry.sql.singleLinePreview(limit: 120))
-        .accessibilityHint("Loads this query into the editor")
+        .accessibilityHint("Single-click to expand, double-click to load into editor")
     }
 
     private func reload() async {

@@ -346,6 +346,17 @@ private struct TabStrip: View {
                                 onCloseOthers: openTabs.count > 1 ? { onCloseOthers(tab) } : nil,
                                 onCloseAll: openTabs.count > 1 ? onCloseAll : nil
                             )
+                            .draggable(tab.id)
+                            .dropDestination(for: String.self) { droppedIDs, _ in
+                                guard let draggedID = droppedIDs.first,
+                                      let from = openTabs.firstIndex(where: { $0.id == draggedID }),
+                                      let to = openTabs.firstIndex(where: { $0.id == tab.id }),
+                                      from != to else { return false }
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    tabs.moveTab(from: from, to: to, for: connectionID)
+                                }
+                                return true
+                            }
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
@@ -453,6 +464,7 @@ private struct TabChip: View {
                 Button("Close All", role: .destructive) { onCloseAll() }
             }
         }
+        .help("Drag to reorder tabs")
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.12), value: isHovered)

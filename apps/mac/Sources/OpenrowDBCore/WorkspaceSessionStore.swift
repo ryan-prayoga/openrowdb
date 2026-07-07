@@ -5,19 +5,19 @@ import Foundation
 /// they carry UI closures and are ephemeral.
 public enum PersistedWorkspaceTab: Sendable, Equatable {
     case query(id: UUID, sql: String, title: String? = nil)
-    case table(ref: TableRef, filterColumn: String?, filterValue: String?)
+    case table(ref: TableRef, filterColumn: String?, filterValue: String?, filterOperator: String? = nil)
 
     public var tabKey: String {
         switch self {
         case .query(let id, _, _): return "query:\(id.uuidString)"
-        case .table(let ref, _, _): return "table:\(ref.id)"
+        case .table(let ref, _, _, _): return "table:\(ref.id)"
         }
     }
 }
 
 extension PersistedWorkspaceTab: Codable {
     private enum CodingKeys: String, CodingKey {
-        case kind, id, sql, title, ref, filterColumn, filterValue
+        case kind, id, sql, title, ref, filterColumn, filterValue, filterOperator
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,7 +34,8 @@ extension PersistedWorkspaceTab: Codable {
             self = .table(
                 ref: try container.decode(TableRef.self, forKey: .ref),
                 filterColumn: try container.decodeIfPresent(String.self, forKey: .filterColumn),
-                filterValue: try container.decodeIfPresent(String.self, forKey: .filterValue)
+                filterValue: try container.decodeIfPresent(String.self, forKey: .filterValue),
+                filterOperator: try container.decodeIfPresent(String.self, forKey: .filterOperator)
             )
         default:
             throw DecodingError.dataCorruptedError(
@@ -53,11 +54,12 @@ extension PersistedWorkspaceTab: Codable {
             try container.encode(id, forKey: .id)
             try container.encode(sql, forKey: .sql)
             try container.encodeIfPresent(title, forKey: .title)
-        case .table(let ref, let filterColumn, let filterValue):
+        case .table(let ref, let filterColumn, let filterValue, let filterOperator):
             try container.encode("table", forKey: .kind)
             try container.encode(ref, forKey: .ref)
             try container.encodeIfPresent(filterColumn, forKey: .filterColumn)
             try container.encodeIfPresent(filterValue, forKey: .filterValue)
+            try container.encodeIfPresent(filterOperator, forKey: .filterOperator)
         }
     }
 }

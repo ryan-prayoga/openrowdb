@@ -138,21 +138,74 @@ public extension SQLDialect {
         "SELECT COUNT(*) FROM \(qualifiedName(table)) WHERE \(searchPredicate(columns: columns, term: term))"
     }
 
-    /// Paged `SELECT *` filtered by a single-column substring match.
+    /// Predicate for a single-column filter with an explicit operator.
+    func columnFilterPredicate(column: String, operator op: ColumnFilterOperator, term: String) -> String {
+        let col = quote(column)
+        let lit = quoteLiteral(term)
+        switch op {
+        case .contains:
+            return searchPredicate(columns: [column], term: term)
+        case .equals:
+            return "\(col) = \(lit)"
+        case .notEquals:
+            switch self {
+            case .postgres: return "\(col) <> \(lit)"
+            case .mysql: return "\(col) != \(lit)"
+            }
+        case .greaterThan:
+            return "\(col) > \(lit)"
+        case .lessThan:
+            return "\(col) < \(lit)"
+        case .startsWith:
+            let pattern = quoteLiteral(escapeLikePattern(term) + "%")
+            switch self {
+            case .postgres: return "CAST(\(col) AS TEXT) ILIKE \(pattern)"
+            case .mysql: return "CAST(\(col) AS CHAR) LIKE \(pattern)"
+            }
+        case .endsWith:
+            let pattern = quoteLiteral("%" + escapeLikePattern(term))
+            switch self {
+            case .postgres: return "CAST(\(col) AS TEXT) ILIKE \(pattern)"
+            case .mysql: return "CAST(\(col) AS CHAR) LIKE \(pattern)"
+            }
+        }
+    }
+
+    private func escapeLikePattern(_ term: String) -> String {
+        term
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+    }
+
+    /// Paged `SELECT *` filtered by a single-column condition.
     func filterRowsSQL(
         _ table: TableRef,
         column: String,
+        operator op: ColumnFilterOperator = .contains,
         term: String,
         limit: Int,
         offset: Int,
         sort: SortSpec? = nil
     ) -> String {
-        searchRowsSQL(table, columns: [column], term: term, limit: limit, offset: offset, sort: sort)
+        let safeLimit = max(0, limit)
+        let safeOffset = max(0, offset)
+        var sql = "SELECT * FROM \(qualifiedName(table)) WHERE \(columnFilterPredicate(column: column, operator: op, term: term))"
+        if let sort {
+            sql += " ORDER BY \(quote(sort.column)) \(sort.ascending ? "ASC" : "DESC")"
+        }
+        sql += " LIMIT \(safeLimit) OFFSET \(safeOffset)"
+        return sql
     }
 
     /// Exact count for a single-column filter.
-    func filterCountSQL(_ table: TableRef, column: String, term: String) -> String {
-        searchCountSQL(table, columns: [column], term: term)
+    func filterCountSQL(
+        _ table: TableRef,
+        column: String,
+        operator op: ColumnFilterOperator = .contains,
+        term: String
+    ) -> String {
+        "SELECT COUNT(*) FROM \(qualifiedName(table)) WHERE \(columnFilterPredicate(column: column, operator: op, term: term))"
     }
 
     // MARK: - Explain

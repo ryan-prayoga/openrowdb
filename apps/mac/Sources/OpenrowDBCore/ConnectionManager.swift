@@ -329,20 +329,27 @@ public final class ConnectionManager {
         _ table: TableRef,
         on id: UUID,
         column: String,
+        operator op: ColumnFilterOperator = .contains,
         term: String,
         limit: Int,
         offset: Int,
         sort: SortSpec? = nil
     ) async throws -> QueryResult {
         try await perform(id, database: table.database) {
-            try await $0.query($0.dialect.filterRowsSQL(table, column: column, term: term, limit: limit, offset: offset, sort: sort))
+            try await $0.query($0.dialect.filterRowsSQL(table, column: column, operator: op, term: term, limit: limit, offset: offset, sort: sort))
         }
     }
 
     /// Exact count for a single-column filter.
-    public func filterRowCount(_ table: TableRef, on id: UUID, column: String, term: String) async throws -> Int {
+    public func filterRowCount(
+        _ table: TableRef,
+        on id: UUID,
+        column: String,
+        operator op: ColumnFilterOperator = .contains,
+        term: String
+    ) async throws -> Int {
         try await perform(id, database: table.database) { client in
-            let result = try await client.query(client.dialect.filterCountSQL(table, column: column, term: term))
+            let result = try await client.query(client.dialect.filterCountSQL(table, column: column, operator: op, term: term))
             guard let first = result.rows.first?.first, let value = first, let count = Int(value) else {
                 return 0
             }

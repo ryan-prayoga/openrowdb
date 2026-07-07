@@ -21,6 +21,13 @@ enum WorkspaceTab: Hashable, Identifiable {
 struct TableTabFilter: Equatable, Sendable {
     let column: String
     let value: String
+    let op: ColumnFilterOperator
+
+    init(column: String, value: String, op: ColumnFilterOperator = .contains) {
+        self.column = column
+        self.value = value
+        self.op = op
+    }
 }
 
 @MainActor
@@ -147,10 +154,11 @@ final class WorkspaceTabsState {
                 if let title, !title.isEmpty {
                     queryTabTitles[id] = title
                 }
-            case .table(let ref, let filterColumn, let filterValue):
+            case .table(let ref, let filterColumn, let filterValue, let filterOperator):
                 restored.append(.table(ref))
                 if let filterColumn, let filterValue, !filterColumn.isEmpty, !filterValue.isEmpty {
-                    tableFilters[ref.id] = TableTabFilter(column: filterColumn, value: filterValue)
+                    let op = filterOperator.flatMap(ColumnFilterOperator.init(rawValue:)) ?? .contains
+                    tableFilters[ref.id] = TableTabFilter(column: filterColumn, value: filterValue, op: op)
                 }
             }
         }
@@ -184,7 +192,12 @@ final class WorkspaceTabsState {
                 persisted.append(.query(id: id, sql: sql, title: title))
             case .table(let ref):
                 let filter = tableFilters[ref.id]
-                persisted.append(.table(ref: ref, filterColumn: filter?.column, filterValue: filter?.value))
+                persisted.append(.table(
+                    ref: ref,
+                    filterColumn: filter?.column,
+                    filterValue: filter?.value,
+                    filterOperator: filter?.op.rawValue
+                ))
             case .structure:
                 continue
             }
@@ -212,10 +225,11 @@ final class WorkspaceTabsState {
         _ table: TableRef,
         for connectionID: UUID,
         filterColumn: String? = nil,
-        filterValue: String? = nil
+        filterValue: String? = nil,
+        filterOperator: ColumnFilterOperator = .contains
     ) -> WorkspaceTab {
         if let filterColumn, let filterValue, !filterColumn.isEmpty, !filterValue.isEmpty {
-            tableFilters[table.id] = TableTabFilter(column: filterColumn, value: filterValue)
+            tableFilters[table.id] = TableTabFilter(column: filterColumn, value: filterValue, op: filterOperator)
         }
         var current = tabs(for: connectionID)
         let tab = WorkspaceTab.table(table)
@@ -291,6 +305,18 @@ final class WorkspaceTabsState {
 
     func closeTabs(_ batch: [WorkspaceTab], for connectionID: UUID) {
         for tab in batch { closeTab(tab, for: connectionID) }
+    }
+
+    /// Reorder an open tab within a connection's strip.
+    func moveTab(from source: Int, to destination: Int, for connectionID: UUID) {
+        var current = tabs(for: connectionID)
+        guard source != destination,
+              current.indices.contains(source),
+              current.indices.contains(destination) else { return }
+        let tab = current.remove(at: source)
+        current.insert(tab, at: destination)
+        tabsByConnection[connectionID] = current
+        schedulePersist(for: connectionID)
     }
 
     func reset(for connectionID: UUID) {

@@ -48,8 +48,10 @@ struct TableDataView: View {
 
     @State private var filterColumn = ""
     @State private var filterValue = ""
+    @State private var filterOperator: ColumnFilterOperator = .contains
     @State private var appliedFilterColumn = ""
     @State private var appliedFilterValue = ""
+    @State private var appliedFilterOperator: ColumnFilterOperator = .contains
     @State private var filterGeneration: UInt64 = 0
     @State private var showFilterPopover = false
 
@@ -109,6 +111,7 @@ struct TableDataView: View {
             .onChange(of: search) { handleSearchChange() }
             .onChange(of: filterValue) { handleFilterChange() }
             .onChange(of: filterColumn) { handleFilterChange() }
+            .onChange(of: filterOperator) { handleFilterChange() }
             .onChange(of: selectedRowID) { previous, current in
                 handleSelectionChange(previous: previous, current: current)
             }
@@ -284,7 +287,7 @@ struct TableDataView: View {
 
     private var emptyFilterSubtitle: String {
         if isColumnFiltering {
-            return "Nothing in \(appliedFilterColumn) matches \"\(appliedFilterValue)\"."
+            return "Nothing in \(appliedFilterColumn) \(appliedFilterOperator.label.lowercased()) \"\(appliedFilterValue)\"."
         }
         if isSearching {
             return "Nothing matches \"\(appliedSearch)\"."
@@ -324,26 +327,25 @@ struct TableDataView: View {
                     if !focused, search.isEmpty { collapseSearch() }
                 }
             } else {
-                Button {
+                GlassIconButton(systemName: "magnifyingglass", help: "Search rows", accessibility: "Search rows") {
                     withAnimation(.spring(duration: 0.25, bounce: 0.1)) {
                         searchExpanded = true
                     }
-                } label: {
-                    Image(systemName: "magnifyingglass").frame(width: 16, height: 16)
                 }
-                .help("Search rows")
                 .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
             }
 
             // Filter: single button, blue when active, popover on click
-            Button {
+            GlassIconButton(
+                systemName: "line.3.horizontal.decrease",
+                help: isColumnFiltering
+                    ? "Filter: \(appliedFilterColumn) \(appliedFilterOperator.label) \"\(appliedFilterValue)\""
+                    : "Filter rows by column",
+                accessibility: "Filter rows"
+            ) {
                 showFilterPopover = true
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .frame(width: 16, height: 16)
             }
             .foregroundStyle(isColumnFiltering ? Color.accentColor : .primary)
-            .help(isColumnFiltering ? "Filter: \(appliedFilterColumn) = \"\(appliedFilterValue)\"" : "Filter rows by column")
             .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
                 filterPopover
             }
@@ -360,16 +362,18 @@ struct TableDataView: View {
                 } else {
                     Button { beginAddRow() } label: { Label("Add Row", systemImage: "plus") }
                         .help("Insert a new row")
-                    Button { beginEditRow() } label: {
-                        Image(systemName: "pencil").frame(width: 16, height: 16)
-                    }
+                    GlassIconButton(
+                        systemName: "pencil",
+                        help: rowActionHelp("Edit selected row"),
+                        accessibility: "Edit row"
+                    ) { beginEditRow() }
                     .disabled(selectedRowID == nil || !canEditRows)
-                    .help(rowActionHelp("Edit selected row"))
-                    Button { pendingDeleteRow = selectedRowID } label: {
-                        Image(systemName: "trash").frame(width: 16, height: 16)
-                    }
+                    GlassIconButton(
+                        systemName: "trash",
+                        help: rowActionHelp("Delete selected row"),
+                        accessibility: "Delete row"
+                    ) { pendingDeleteRow = selectedRowID }
                     .disabled(selectedRowID == nil || !canEditRows)
-                    .help(rowActionHelp("Delete selected row"))
                 }
             }
         }
@@ -386,21 +390,29 @@ struct TableDataView: View {
                 ForEach(columns, id: \.name) { Text($0.name).tag($0.name) }
             }
             .labelsHidden()
-            .frame(width: 200)
+            .frame(width: 220)
+            Picker("Operator", selection: $filterOperator) {
+                ForEach(ColumnFilterOperator.allCases, id: \.self) { op in
+                    Text(op.label).tag(op)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 220)
             TextField("Value", text: $filterValue)
                 .textFieldStyle(.roundedBorder)
                 .disabled(filterColumn.isEmpty)
-                .frame(width: 200)
+                .frame(width: 220)
             if isColumnFiltering {
                 Button("Clear filter") {
                     filterColumn = ""
                     filterValue = ""
+                    filterOperator = .contains
                     showFilterPopover = false
                 }
                 .foregroundStyle(.red)
             }
         }
-        .padding(16)
+        .padding(DesignTokens.popoverPadding)
         .buttonStyle(.glass)
     }
 
@@ -496,7 +508,8 @@ struct TableDataView: View {
             fk.referencedTable,
             for: connectionID,
             filterColumn: fk.referencedColumn,
-            filterValue: value
+            filterValue: value,
+            filterOperator: .equals
         )
     }
 
@@ -662,13 +675,17 @@ struct TableDataView: View {
         searchExpanded = false
         filterColumn = ""
         filterValue = ""
+        filterOperator = .contains
         appliedFilterColumn = ""
         appliedFilterValue = ""
+        appliedFilterOperator = .contains
         if let preset = tabs.tableFilter(for: table) {
             filterColumn = preset.column
             filterValue = preset.value
+            filterOperator = preset.op
             appliedFilterColumn = preset.column
             appliedFilterValue = preset.value
+            appliedFilterOperator = preset.op
         }
         await loadColumns()
         await loadKeys()
@@ -699,6 +716,7 @@ struct TableDataView: View {
             guard generation == filterGeneration else { return }
             appliedFilterColumn = filterColumn
             appliedFilterValue = filterValue
+            appliedFilterOperator = filterOperator
             page = 0
             selectedRowID = nil
             Task {
@@ -748,7 +766,11 @@ struct TableDataView: View {
         let value: RowCount?
         if isColumnFiltering {
             let count = try? await manager.filterRowCount(
-                table, on: connectionID, column: appliedFilterColumn, term: appliedFilterValue
+                table,
+                on: connectionID,
+                column: appliedFilterColumn,
+                operator: appliedFilterOperator,
+                term: appliedFilterValue
             )
             value = count.map { RowCount(value: $0, isEstimate: false) }
         } else if isSearching {
@@ -778,6 +800,7 @@ struct TableDataView: View {
                     table,
                     on: connectionID,
                     column: appliedFilterColumn,
+                    operator: appliedFilterOperator,
                     term: appliedFilterValue,
                     limit: pageSize,
                     offset: page * pageSize,

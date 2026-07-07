@@ -20,17 +20,41 @@ struct DatabaseTransferMenu: View {
     @State private var summary: String?
     @State private var isError = false
     @State private var task: Task<Void, Never>?
+    @State private var showTransferMenu = false
+    @State private var pendingImportURL: URL?
+    @State private var pendingImportCount = 0
 
     var body: some View {
-        Menu {
-            Button("Export Database…") { exportDatabase(includeData: true) }
-            Button("Export Schema Only…") { exportDatabase(includeData: false) }
-            Divider()
-            Button("Import SQL File…") { importSQL() }
+        Button {
+            showTransferMenu.toggle()
         } label: {
             Label("Transfer", systemImage: "arrow.up.arrow.down.square")
         }
+        .buttonStyle(.glass)
         .help("Export or import this database as SQL")
+        .popover(isPresented: $showTransferMenu, arrowEdge: .bottom) {
+            transferPopover
+        }
+        .confirmationDialog(
+            "Import \(pendingImportCount) statement\(pendingImportCount == 1 ? "" : "s")?",
+            isPresented: Binding(
+                get: { pendingImportURL != nil },
+                set: { if !$0 { pendingImportURL = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Import", role: .destructive) {
+                if let url = pendingImportURL {
+                    runImport(from: url)
+                }
+                pendingImportURL = nil
+            }
+            Button("Cancel", role: .cancel) { pendingImportURL = nil }
+        } message: {
+            if let url = pendingImportURL {
+                Text("Run all SQL statements from “\(url.lastPathComponent)” against this connection?")
+            }
+        }
         .sheet(isPresented: $showSheet) {
             TransferProgressSheet(
                 title: title,
@@ -43,6 +67,26 @@ struct DatabaseTransferMenu: View {
                 onDone: { showSheet = false }
             )
         }
+    }
+
+    private var transferPopover: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.popoverRowSpacing) {
+            GlassMenuRow(title: "Export Database…", icon: "square.and.arrow.up") {
+                showTransferMenu = false
+                exportDatabase(includeData: true)
+            }
+            GlassMenuRow(title: "Export Schema Only…", icon: "doc.text") {
+                showTransferMenu = false
+                exportDatabase(includeData: false)
+            }
+            Divider().padding(.vertical, 3)
+            GlassMenuRow(title: "Import SQL File…", icon: "square.and.arrow.down") {
+                showTransferMenu = false
+                importSQL()
+            }
+        }
+        .padding(6)
+        .frame(width: 248)
     }
 
     // MARK: - Export
@@ -78,6 +122,25 @@ struct DatabaseTransferMenu: View {
 
     private func importSQL() {
         guard let url = SQLFileIO.chooseOpenURL() else { return }
+        let text: String
+        do {
+            text = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            beginSheet("Import failed")
+            finish("Couldn't read \(url.lastPathComponent): \(Self.message(error))", error: true)
+            return
+        }
+        let statements = SQLStatementSplitter.split(text)
+        guard !statements.isEmpty else {
+            beginSheet("Import failed")
+            finish("No statements found in the file.", error: false)
+            return
+        }
+        pendingImportCount = statements.count
+        pendingImportURL = url
+    }
+
+    private func runImport(from url: URL) {
         beginSheet("Importing \(url.lastPathComponent)")
         task = Task {
             let text: String

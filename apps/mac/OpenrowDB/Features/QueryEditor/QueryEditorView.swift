@@ -380,7 +380,7 @@ struct QueryEditorView: View {
         .accessibilityLabel("More")
         .popover(isPresented: $showMoreMenu, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 1) {
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Format SQL",
                     icon: "text.alignleft",
                     shortcut: "⌘⇧F",
@@ -389,7 +389,7 @@ struct QueryEditorView: View {
                     showMoreMenu = false
                     runner.sql = SQLFormatter.format(runner.sql, dialect: dialect)
                 }
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Explain Plan",
                     icon: "list.bullet.rectangle",
                     disabled: running || blank
@@ -398,7 +398,7 @@ struct QueryEditorView: View {
                     runExplain(runner: runner)
                 }
                 Divider().padding(.vertical, 3)
-                RunMenuRow(
+                GlassMenuRow(
                     title: showSnippets ? "Hide Snippets" : "Show Snippets",
                     icon: "bookmark",
                     disabled: false
@@ -408,7 +408,7 @@ struct QueryEditorView: View {
                     if showSnippets { showHistory = false }
                 }
                 Divider().padding(.vertical, 3)
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Export as CSV…",
                     icon: "square.and.arrow.up",
                     disabled: !hasExport
@@ -416,7 +416,7 @@ struct QueryEditorView: View {
                     showMoreMenu = false
                     exportFirstResult(runner: runner, format: .csv)
                 }
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Export as JSON…",
                     icon: "curlybraces",
                     disabled: !hasExport
@@ -424,7 +424,7 @@ struct QueryEditorView: View {
                     showMoreMenu = false
                     exportFirstResult(runner: runner, format: .json)
                 }
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Copy as CSV",
                     icon: "doc.on.clipboard",
                     disabled: !hasExport
@@ -432,7 +432,7 @@ struct QueryEditorView: View {
                     showMoreMenu = false
                     copyFirstResult(runner: runner, format: .csv)
                 }
-                RunMenuRow(
+                GlassMenuRow(
                     title: "Copy as JSON",
                     icon: "doc.on.clipboard",
                     disabled: !hasExport
@@ -503,7 +503,7 @@ struct QueryEditorView: View {
     /// as the toolbar so the control reads as one designed unit.
     private func runMenu(runner: QueryRunner) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            RunMenuRow(
+            GlassMenuRow(
                 title: "Run Current Statement",
                 icon: "play.fill",
                 shortcut: "⌘↩"
@@ -511,7 +511,7 @@ struct QueryEditorView: View {
                 showRunMenu = false
                 runCurrent(runner)
             }
-            RunMenuRow(
+            GlassMenuRow(
                 title: "Run Selection",
                 icon: "text.cursor",
                 disabled: editorAccess.selectionLength() == 0
@@ -520,7 +520,7 @@ struct QueryEditorView: View {
                 runSelection(runner)
             }
             Divider().padding(.vertical, 3)
-            RunMenuRow(
+            GlassMenuRow(
                 title: "Run All Statements",
                 icon: "forward.fill",
                 shortcut: "⇧⌘↩"
@@ -531,56 +531,6 @@ struct QueryEditorView: View {
         }
         .padding(6)
         .frame(width: 248)
-    }
-
-    /// One row of `runMenu`. `.plain` button with a tint-filled hover highlight,
-    /// matching how AppKit menu items light up on pointer hover.
-    private struct RunMenuRow: View {
-        let title: String
-        var icon: String? = nil
-        var shortcut: String? = nil
-        var disabled: Bool = false
-        let action: () -> Void
-
-        @State private var hovering = false
-
-        private var active: Bool { hovering && !disabled }
-
-        var body: some View {
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    // Reserve the leading slot even when there's no icon so
-                    // labels line up (e.g. the database picker only marks the
-                    // current row with a checkmark).
-                    Group {
-                        if let icon { Image(systemName: icon) }
-                    }
-                    .frame(width: 16)
-                    Text(title).lineLimit(1)
-                    Spacer(minLength: 16)
-                    if let shortcut {
-                        Text(shortcut)
-                            .foregroundStyle(active ? .white.opacity(0.8) : Color.secondary)
-                    }
-                }
-                .font(.callout)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .background {
-                    if active {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accentColor)
-                    }
-                }
-                .contentShape(.rect(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            .opacity(disabled ? 0.4 : 1)
-            .onHover { hovering = $0 }
-        }
     }
 
     /// Database this query tab targets. Defaults to the connection's database;
@@ -620,7 +570,7 @@ struct QueryEditorView: View {
             VStack(alignment: .leading, spacing: 1) {
                 if !databases.isEmpty {
                     ForEach(databases, id: \.self) { db in
-                        RunMenuRow(
+                        GlassMenuRow(
                             title: db,
                             icon: db == current ? "checkmark" : nil
                         ) {

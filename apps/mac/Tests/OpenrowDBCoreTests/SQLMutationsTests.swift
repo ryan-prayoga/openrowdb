@@ -112,6 +112,26 @@ final class SQLMutationsTests: XCTestCase {
         )
     }
 
+    func testColumnFilterEquals() {
+        let pred = SQLDialect.postgres.columnFilterPredicate(column: "year", operator: .equals, term: "2009")
+        XCTAssertEqual(pred, "\"year\" = '2009'")
+    }
+
+    func testColumnFilterStartsWithMySQL() {
+        let pred = SQLDialect.mysql.columnFilterPredicate(column: "note", operator: .startsWith, term: "pre")
+        XCTAssertEqual(pred, "CAST(`note` AS CHAR) LIKE 'pre%'")
+    }
+
+    func testFilterRowsSQLWithOperator() {
+        let sql = SQLDialect.postgres.filterRowsSQL(
+            t, column: "year", operator: .greaterThan, term: "2000", limit: 10, offset: 0
+        )
+        XCTAssertEqual(
+            sql,
+            "SELECT * FROM \"public\".\"Movie\" WHERE \"year\" > '2000' LIMIT 10 OFFSET 0"
+        )
+    }
+
     // MARK: - Explain & foreign keys
 
     func testExplainSQLPostgres() {

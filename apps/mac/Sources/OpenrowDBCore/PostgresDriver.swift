@@ -162,23 +162,25 @@ private actor Session {
             throw DatabaseError.notConnected
         }
 
-        let rows: PostgresRowSequence
+        let pgResult: PostgresQueryResult
         do {
-            rows = try await conn.query(PostgresQuery(unsafeSQL: sql), logger: PostgresDriver.logger)
+            // EventLoopFuture overload — exposes `PostgresQueryMetadata.rows` for mutations.
+            pgResult = try await conn.query(PostgresQuery(unsafeSQL: sql), logger: PostgresDriver.logger).get()
         } catch {
             throw PostgresDriver.translate(error)
         }
 
         var columns: [String] = []
         var rendered: [[String?]] = []
-        for try await row in rows {
+        for row in pgResult {
             if columns.isEmpty {
                 columns = row.map(\.columnName)
             }
             rendered.append(row.map(PostgresDriver.render))
         }
 
-        return QueryResult(columns: columns, rows: rendered)
+        let rowsAffected = columns.isEmpty ? pgResult.metadata.rows : nil
+        return QueryResult(columns: columns, rows: rendered, rowsAffected: rowsAffected)
     }
 
     func close() async {

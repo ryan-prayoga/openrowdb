@@ -79,15 +79,37 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Copy row as INSERT / UPDATE — table viewer context menu
 - [x] Column filter — per-column substring filter in table viewer
 - [x] Line numbers — gutter ruler in SQL editor
-- [x] Rows affected — MySQL driver reports via `onMetadata` (Postgres pending NIO API)
+- [x] Rows affected — MySQL via `onMetadata`; Postgres via `PostgresQueryMetadata.rows`
 - [x] SSH tunneling — `SSHTunnelManager` via `/usr/bin/ssh`, connection sheet section
 - [x] Explain plan viewer — `ExplainPlanView` + toolbar button in query editor
 - [x] Foreign key navigation — `ForeignKeyRef` introspection + Follow FK in row inspector
 - [x] Read-only connection mode — `SQLWriteDetector` guards + UI badges / disabled DDL
 - [x] Tab persistence across restart — `WorkspaceSessionStore` (`workspace.json`)
-- [ ] …see pre-release plan for full Tier A/B backlog
 
-## Phase 5 — Ship v0.1.0 (Day 14) ✅ (tooling ready)
+### Tier A — v0.2.0 maturity sprint (2026-07-07) ✅
+
+Shipped in one day as sprints A→H; see [CHANGELOG](CHANGELOG.md#020--2026-07-07).
+
+| Sprint | Scope |
+|--------|-------|
+| **A** | Preferences (⌘,), UX polish, export/DDL error surfacing |
+| **B** | Duplicate connection, URL import, history pin/search, tab auto-title |
+| **C** | Tab drag-reorder, filter operators, DesignSystem tokens, transfer popover |
+| **D** | Rename table sheet, connection validation, onboarding sample connections |
+| **E** | Global search (⌘K), Edit menu → editor, Help links |
+| **F** | Multi-select rows, column width persistence, workspace breadcrumbs |
+| **G** | Bulk paste (⇧⌘V), expandable schema folders, driver badge icons |
+| **H** | Typed inline cells, index editor, foreign key editor |
+
+### Tier B — pre-v1 backlog (next up)
+
+- [ ] Multi-window support (one connection per window)
+- [ ] Query result column sort for ad-hoc SELECT (server round-trip)
+- [ ] Web marketing screenshots (`web/` — `TODO(screenshots)`)
+- [ ] Sign with Apple Developer cert + notarize DMG (maintainer)
+- [ ] Announce v0.2.0 on X + Show HN (maintainer)
+
+## Phase 5 — Ship v0.1.0 (Day 14) ✅
 
 - [x] App bundle from SwiftPM — `scripts/make-app.sh` (Info.plist, icon, ad-hoc or `SIGN_IDENTITY`)
 - [x] Entitlements + Info.plist — `OpenrowDB/Resources/` (`com.openrowdb.mac`, developer-tools)
@@ -95,9 +117,17 @@ OpenrowDB is built in the open. This roadmap is the live plan — updated as we 
 - [x] Notarize helper — `scripts/notarize.sh` (needs maintainer Apple ID + Developer ID cert)
 - [x] GitHub Release workflow — `.github/workflows/release.yml` (tag `v*` → DMG artifact + release)
 - [x] CHANGELOG + README badges
+- [x] Push tag `v0.1.0` + publish GitHub Release (maintainer)
 - [ ] Sign with Apple Developer cert (maintainer — set `SIGN_IDENTITY` locally)
-- [ ] Push tag `v0.1.0` + publish GitHub Release (maintainer)
 - [ ] Launch tweet + Show HN (maintainer)
+
+## Phase 5.1 — Ship v0.2.0 (maturity release) ✅
+
+- [x] Tier A sprints A→H (settings, global search, bulk ops, typed cells, index/FK editor)
+- [x] CHANGELOG + `release-notes/v0.2.0.md` + web `features.ts`
+- [x] Tag `v0.2.0` + GitHub Release + CI green (2026-07-07)
+- [x] Postgres rows affected — `PostgresQueryMetadata.rows` via EventLoopFuture query API
+- [ ] Announce v0.2.0 on X + Show HN (maintainer)
 
 ## Post v1 — backlog
 - [ ] SQLite driver

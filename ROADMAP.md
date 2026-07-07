@@ -103,7 +103,7 @@ Shipped in one day as sprints A→H; see [CHANGELOG](CHANGELOG.md#020--2026-07-0
 
 ### Tier B — pre-v1 backlog (next up)
 
-- [ ] Multi-window support (one connection per window)
+- [x] Multi-window support — ⌘⇧N main windows + dedicated connection windows
 - [x] Query result column sort — client-side on fetched result sets + EXPLAIN grid
 - [ ] Web marketing screenshots (`web/` — `TODO(screenshots)`)
 - [ ] Sign with Apple Developer cert + notarize DMG (maintainer)

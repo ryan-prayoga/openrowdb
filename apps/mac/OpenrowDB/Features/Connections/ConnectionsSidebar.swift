@@ -9,6 +9,7 @@ import SwiftUI
 /// `NSTableView` row: that gives every row its own context menu (no menu
 /// leaking between siblings) and a clean per-row press highlight.
 struct ConnectionsSidebar: View {
+    @Environment(\.openWindow) private var openWindow
     @Environment(ConnectionManager.self) private var manager
     @Environment(WorkspaceTabsState.self) private var tabs
     @Environment(RefreshCoordinator.self) private var refreshCoordinator
@@ -327,6 +328,7 @@ struct ConnectionsSidebar: View {
             onRefresh: { refreshCoordinator.refresh(connectionID: conn.id) },
             onEdit: { editingConnection = conn },
             onDuplicate: { Task { try? manager.duplicate(conn) } },
+            onOpenInNewWindow: { openWindow(id: "connection", value: conn.id) },
             onDelete: { pendingDelete = conn },
             newTableDatabases: connDatabases[conn.id] ?? [],
             canCreateTable: !manager.isReadOnly(conn.id),
@@ -846,6 +848,7 @@ private struct ConnHeaderRow: View {
     let onRefresh: () -> Void
     let onEdit: () -> Void
     let onDuplicate: () -> Void
+    let onOpenInNewWindow: () -> Void
     let onDelete: () -> Void
     /// Databases known for this connection (drives the "New Table" submenu).
     let newTableDatabases: [String]
@@ -904,6 +907,7 @@ private struct ConnHeaderRow: View {
             }
             Button("Edit…") { onEdit() }
             Button("Duplicate") { onDuplicate() }
+            Button("Open in New Window") { onOpenInNewWindow() }
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }
@@ -928,6 +932,7 @@ private struct ConnHeaderRow: View {
         .accessibilityAction(named: "Refresh") { onRefresh() }
         .accessibilityAction(named: "Edit") { onEdit() }
         .accessibilityAction(named: "Duplicate") { onDuplicate() }
+        .accessibilityAction(named: "Open in New Window") { onOpenInNewWindow() }
     }
 }
 

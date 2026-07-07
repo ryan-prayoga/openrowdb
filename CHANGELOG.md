@@ -6,6 +6,7 @@ All notable changes to OpenrowDB are documented here. Format follows [Keep a Cha
 
 ### Added
 
+- **Multi-window support** — ⌘⇧N opens another main window; right-click a connection → **Open in New Window** for a dedicated workspace window (one connection, shared tab state).
 - **Query result column sort** — click column headers to sort ad-hoc SELECT results and EXPLAIN output client-side (numeric-aware, NULLs last).
 
 ## [0.2.1] — 2026-07-07

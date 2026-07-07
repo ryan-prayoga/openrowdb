@@ -26,30 +26,20 @@ struct OpenrowDBApp: App {
     @State private var snippets = OpenrowDBApp.makeSnippets()
     @State private var tabs = WorkspaceTabsState()
     @State private var sessionStore = OpenrowDBApp.makeSessionStore()
-    @State private var refreshCoordinator = RefreshCoordinator()
     @State private var preferences = AppPreferences.shared
-    @State private var showingNewConnection = false
-    @State private var newConnectionPreset: ConnectionFormPreset?
     @State private var showingOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
     @State private var openConnectionAfterOnboarding = !UserDefaults.standard.bool(forKey: "hasSeenOnboarding")
-    @State private var showingShortcuts = false
-    @State private var globalSearch = GlobalSearchCoordinator()
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
-        WindowGroup {
-            ContentView(
-                showingNewConnection: $showingNewConnection,
-                newConnectionPreset: $newConnectionPreset,
-                globalSearch: globalSearch
-            )
+        WindowGroup(id: "main") {
+            ContentView()
                 .environment(manager)
                 .environment(history)
                 .environment(snippets)
                 .environment(tabs)
-                .environment(refreshCoordinator)
                 .environment(preferences)
-                .environment(globalSearch)
                 .task {
                     try? manager.reload()
                     tabs.sessionStore = sessionStore
@@ -62,9 +52,8 @@ struct OpenrowDBApp: App {
                     }
                 }
                 .sheet(isPresented: $showingOnboarding, onDismiss: {
-                    // First launch chains into New Connection; replays from Help do not.
                     if openConnectionAfterOnboarding {
-                        showingNewConnection = true
+                        WindowCommandRouter.shared.presentNewConnection()
                         openConnectionAfterOnboarding = false
                     }
                 }) {
@@ -81,18 +70,25 @@ struct OpenrowDBApp: App {
                         }
                     )
                 }
-                .sheet(isPresented: $showingShortcuts) {
-                    ShortcutsHelpView()
-                }
-                .sheet(isPresented: $globalSearch.isPresented) {
-                    GlobalSearchView()
-                }
         }
         .windowStyle(.hiddenTitleBar)
-        // Drive the window min size from column widths, not a content frame, so the
-        // sidebar toggle animates smoothly. (Apple DTS: forums/thread/775713)
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 700)
+
+        WindowGroup(id: "connection", for: UUID.self) { $connectionID in
+            if let connectionID {
+                ConnectionWindowView(connectionID: connectionID)
+                    .environment(manager)
+                    .environment(history)
+                    .environment(snippets)
+                    .environment(tabs)
+                    .environment(preferences)
+            }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 960, height: 640)
+
         Settings {
             PreferencesView()
                 .environment(preferences)
@@ -107,9 +103,13 @@ struct OpenrowDBApp: App {
             }
             CommandGroup(replacing: .newItem) {
                 Button("New Connection…") {
-                    showingNewConnection = true
+                    WindowCommandRouter.shared.presentNewConnection()
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+                Button("New Window") {
+                    openWindow(id: "main")
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { EditorCommandCenter.shared.undo() }
@@ -123,7 +123,7 @@ struct OpenrowDBApp: App {
             }
             CommandGroup(before: .help) {
                 Button("Search…") {
-                    globalSearch.present()
+                    WindowCommandRouter.shared.presentSearch()
                 }
                 .keyboardShortcut("k", modifiers: .command)
             }
@@ -133,7 +133,7 @@ struct OpenrowDBApp: App {
                     showingOnboarding = true
                 }
                 Button("Keyboard Shortcuts…") {
-                    showingShortcuts = true
+                    WindowCommandRouter.shared.presentShortcuts()
                 }
                 .keyboardShortcut("/", modifiers: .command)
                 Divider()
@@ -155,9 +155,8 @@ struct OpenrowDBApp: App {
     private func finishOnboardingWithSample(_ preset: ConnectionFormPreset) {
         UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
         openConnectionAfterOnboarding = false
-        newConnectionPreset = preset
         showingOnboarding = false
-        showingNewConnection = true
+        WindowCommandRouter.shared.presentNewConnection(preset: preset)
     }
 
     /// Build the app's `ConnectionManager` with Keychain-backed secrets and

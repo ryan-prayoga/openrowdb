@@ -22,6 +22,7 @@ struct ShortcutsHelpView: View {
         ShortcutGroup(title: "General", entries: [
             ShortcutEntry(keys: ["⌘", ","], description: "Settings"),
             ShortcutEntry(keys: ["⌘", "N"], description: "New connection"),
+            ShortcutEntry(keys: ["⇧", "⌘", "N"], description: "New window"),
             ShortcutEntry(keys: ["⌘", "W"], description: "Close current tab"),
             ShortcutEntry(keys: ["⌘", "T"], description: "New query tab"),
             ShortcutEntry(keys: ["⌘", "R"], description: "Refresh sidebar and active view"),
@@ -50,7 +51,7 @@ struct ShortcutsHelpView: View {
         ]),
         ShortcutGroup(title: "Sidebar", entries: [
             ShortcutEntry(keys: ["↩", "↩"], description: "Double-click connection to connect"),
-            ShortcutEntry(keys: ["⌃", "click"], description: "Context menu — drop, rename, export SQL"),
+            ShortcutEntry(keys: ["⌃", "click"], description: "Context menu — drop, rename, open in new window"),
         ]),
     ]
 

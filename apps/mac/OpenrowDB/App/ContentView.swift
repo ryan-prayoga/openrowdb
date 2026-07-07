@@ -4,16 +4,20 @@ import OpenrowDBCore
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(RefreshCoordinator.self) private var refreshCoordinator
-    @Binding var showingNewConnection: Bool
-    @Binding var newConnectionPreset: ConnectionFormPreset?
-    var globalSearch: GlobalSearchCoordinator
+    @Environment(\.controlActiveState) private var controlActiveState
     @Environment(ConnectionManager.self) private var manager
     @Environment(QueryHistoryStore.self) private var history
     @Environment(WorkspaceTabsState.self) private var tabs
+
     @State private var selection: UUID?
     @State private var editingConnection: Connection?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showingNewConnection = false
+    @State private var newConnectionPreset: ConnectionFormPreset?
+    @State private var showingShortcuts = false
+    @State private var globalSearch = GlobalSearchCoordinator()
+    @State private var refreshCoordinator = RefreshCoordinator()
+    @State private var windowToken = UUID()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -43,8 +47,27 @@ struct ContentView: View {
         .sheet(item: $editingConnection) { connection in
             ConnectionSheet(existing: connection)
         }
+        .sheet(isPresented: $showingShortcuts) {
+            ShortcutsHelpView()
+        }
+        .sheet(isPresented: $globalSearch.isPresented) {
+            GlobalSearchView()
+        }
+        .environment(refreshCoordinator)
+        .environment(globalSearch)
         .background(refreshShortcut)
-        .onAppear { wireGlobalSearch() }
+        .onAppear {
+            wireGlobalSearch()
+            registerCommands()
+        }
+        .onChange(of: controlActiveState) { _, state in
+            if state == .key {
+                WindowCommandRouter.shared.becomeKey(token: windowToken)
+            }
+        }
+        .onDisappear {
+            WindowCommandRouter.shared.unregister(token: windowToken)
+        }
     }
 
     private func wireGlobalSearch() {
@@ -69,6 +92,19 @@ struct ContentView: View {
         }
     }
 
+    private func registerCommands() {
+        WindowCommandRouter.shared.register(
+            token: windowToken,
+            presentNewConnection: { showingNewConnection = true },
+            presentNewConnectionPreset: { preset in
+                newConnectionPreset = preset
+                showingNewConnection = true
+            },
+            presentSearch: { globalSearch.present() },
+            presentShortcuts: { showingShortcuts = true }
+        )
+    }
+
     /// Window-wide ⌘R — fires via the responder chain even when the SQL editor
     /// or a hosted NSTableView has focus.
     private var refreshShortcut: some View {
@@ -85,11 +121,7 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(
-        showingNewConnection: .constant(false),
-        newConnectionPreset: .constant(nil),
-        globalSearch: GlobalSearchCoordinator()
-    )
+    ContentView()
         .environment(
             ConnectionManager(
                 store: try! ConnectionStore(
@@ -99,7 +131,10 @@ struct ContentView: View {
                 secrets: InMemorySecretStore()
             )
         )
-        .environment(RefreshCoordinator())
+        .environment(WorkspaceTabsState())
+        .environment(try! QueryHistoryStore(
+            fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview-history.sqlite")
+        ))
         .environment(AppPreferences.shared)
         .frame(width: 1100, height: 700)
 }
